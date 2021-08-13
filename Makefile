@@ -1,4 +1,5 @@
-CURDIR=$(shell pwd)
+CURDIR  := $(shell pwd)
+VERSION := latest
 
 .PHONY: build
 build:
@@ -11,11 +12,12 @@ run: $(CURDIR)/kubearmor-relay-server
 
 .PHONY: build-image
 build-image:
-	cd $(CURDIR); docker build -t kubearmor/kubearmor-relay-server:latest .
+	docker images | grep kubearmor-relay-server | awk '{print $$3}' | xargs -I {} docker rmi {}
+	cd $(CURDIR); docker build -t kubearmor/kubearmor-relay-server:$(VERSION) .
 
 .PHONY: push-image
 push-image:
-	cd $(CURDIR); docker push kubearmor/kubearmor-relay-server:latest
+	cd $(CURDIR); docker push kubearmor/kubearmor-relay-server:$(VERSION)
 
 .PHONY: clean
 clean:
