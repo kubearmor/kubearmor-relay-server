@@ -3,17 +3,18 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"sync"
 	"time"
 
-	pb "github.com/kubearmor/KubeArmor/protobuf"
 	"github.com/google/uuid"
+	pb "github.com/kubearmor/KubeArmor/protobuf"
 	"google.golang.org/grpc"
 
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/kubearmor/kubearmor-relay-server/log"
 )
 
 // ============ //
@@ -276,8 +277,8 @@ func NewRelayServer(port string) *RelayServer {
 	// listen to gRPC port
 	listener, err := net.Listen("tcp", ":"+rs.Port)
 	if err != nil {
-		fmt.Printf("Failed to listen a port (%s)\n", rs.Port)
-		fmt.Println(err.Error())
+		log.Errf("Failed to listen a port (%s)\n", rs.Port)
+		// log.Err(err.Error())
 		return nil
 	}
 	rs.Listener = listener
@@ -317,7 +318,7 @@ func (rs *RelayServer) ServeLogFeeds() {
 // GetFeedsFromNodes Function
 func (rs *RelayServer) GetFeedsFromNodes() {
 	if K8s.InitK8sClient() {
-		fmt.Println("Initialized the Kubernetes client")
+		log.Print("Initialized the Kubernetes client")
 
 		for Running {
 			if resp := K8s.WatchK8sPods(); resp != nil {
@@ -346,28 +347,28 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 							// create a client
 							client := NewClient(server)
 							if client == nil {
-								fmt.Printf("Failed to connect to the gRPC server (%s)\n", server)
+								log.Errf("Failed to connect to the gRPC server (%s)\n", server)
 								continue
 							}
 
 							// do healthcheck
 							if ok := client.DoHealthCheck(); !ok {
-								fmt.Println("Failed to check the liveness of the gRPC server")
+								log.Err("Failed to check the liveness of the gRPC server")
 								return
 							}
-							fmt.Println("Checked the liveness of the gRPC server")
+							log.Print("Checked the liveness of the gRPC server")
 
 							// watch messages
 							go client.WatchMessages()
-							fmt.Println("Started to watch messages from " + server)
+							log.Print("Started to watch messages from " + server)
 
 							// watch alerts
 							go client.WatchAlerts()
-							fmt.Println("Started to watch alerts from " + server)
+							log.Print("Started to watch alerts from " + server)
 
 							// watch logs
 							go client.WatchLogs()
-							fmt.Println("Started to watch logs from " + server)
+							log.Print("Started to watch logs from " + server)
 
 							rs.ClientList[nodeIP] = client
 						} else {
@@ -377,36 +378,36 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 							}
 
 							if err := oldClient.DestroyClient(); err != nil {
-								fmt.Printf("Failed to destroy the gRPC client (%s)\n", server)
+								log.Errf("Failed to destroy the gRPC client (%s)\n", server)
 							}
 
-							fmt.Printf("Try to reconnect to the gRPC server (%s)\n", server)
+							log.Printf("Try to reconnect to the gRPC server (%s)\n", server)
 
 							// create a client
 							client := NewClient(server)
 							if client == nil {
-								fmt.Printf("Failed to reconnect to the gRPC server (%s)\n", server)
+								log.Errf("Failed to reconnect to the gRPC server (%s)\n", server)
 								continue
 							}
 
 							// do healthcheck
 							if ok := client.DoHealthCheck(); !ok {
-								fmt.Println("Failed to check the liveness of the gRPC server")
+								log.Err("Failed to check the liveness of the gRPC server")
 								return
 							}
-							fmt.Println("Checked the liveness of the gRPC server")
+							log.Print("Checked the liveness of the gRPC server")
 
 							// watch messages
 							go client.WatchMessages()
-							fmt.Println("Started to watch messages from " + server)
+							log.Printf("Started to watch messages from " + server)
 
 							// watch alerts
 							go client.WatchAlerts()
-							fmt.Println("Started to watch alerts from " + server)
+							log.Printf("Started to watch alerts from " + server)
 
 							// watch logs
 							go client.WatchLogs()
-							fmt.Println("Started to watch logs from " + server)
+							log.Printf("Started to watch logs from " + server)
 
 							rs.ClientList[nodeIP] = client
 						}
@@ -415,7 +416,7 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 						if val, ok := rs.ClientList[nodeIP]; !ok {
 							// destroy the client
 							if err := val.DestroyClient(); err != nil {
-								fmt.Printf("Failed to destroy the gRPC client (%s)\n", server)
+								log.Errf("Failed to destroy the gRPC client (%s)\n", server)
 							}
 
 							delete(rs.ClientList, nodeIP)
