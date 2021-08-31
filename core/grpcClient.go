@@ -2,11 +2,11 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
 	"sync"
 
 	pb "github.com/kubearmor/KubeArmor/protobuf"
+	"github.com/kubearmor/kubearmor-relay-server/log"
 	"google.golang.org/grpc"
 )
 
@@ -51,7 +51,7 @@ func NewClient(server string) *LogClient {
 
 	conn, err := grpc.Dial(lc.server, grpc.WithInsecure())
 	if err != nil {
-		// fmt.Printf("Failed to connect to a gRPC server (%s)\n", err.Error())
+		log.Errf("Failed to connect to a gRPC server (%s)\n", err.Error())
 		return nil
 	}
 	lc.conn = conn
@@ -63,7 +63,7 @@ func NewClient(server string) *LogClient {
 
 	msgStream, err := lc.client.WatchMessages(context.Background(), &msgIn)
 	if err != nil {
-		// fmt.Printf("Failed to call WatchMessages() (%s)\n", err.Error())
+		log.Errf("Failed to call WatchMessages() (%s)\n", err.Error())
 		return nil
 	}
 	lc.msgStream = msgStream
@@ -73,7 +73,7 @@ func NewClient(server string) *LogClient {
 
 	alertStream, err := lc.client.WatchAlerts(context.Background(), &alertIn)
 	if err != nil {
-		// fmt.Printf("Failed to call WatchAlerts() (%s)\n", err.Error())
+		log.Errf("Failed to call WatchAlerts() (%s)\n", err.Error())
 		return nil
 	}
 	lc.alertStream = alertStream
@@ -83,7 +83,7 @@ func NewClient(server string) *LogClient {
 
 	logStream, err := lc.client.WatchLogs(context.Background(), &logIn)
 	if err != nil {
-		// fmt.Printf("Failed to call WatchLogs() (%s)\n", err.Error())
+		log.Errf("Failed to call WatchLogs() (%s)\n", err.Error())
 		return nil
 	}
 	lc.logStream = logStream
@@ -102,8 +102,8 @@ func (lc *LogClient) DoHealthCheck() bool {
 	nonce := pb.NonceMessage{Nonce: randNum}
 	res, err := lc.client.HealthCheck(context.Background(), &nonce)
 	if err != nil {
-		fmt.Println("Failed to check the liveness of the gRPC server")
-		fmt.Println(err.Error())
+		log.Err("Failed to check the liveness of the gRPC server")
+		// log.Err(err.Error())
 		return false
 	}
 
@@ -123,8 +123,8 @@ func (lc *LogClient) WatchMessages() error {
 	for lc.Running {
 		res, err := lc.msgStream.Recv()
 		if err != nil {
-			fmt.Println("Failed to receive a message")
-			fmt.Println(err.Error())
+			log.Err("Failed to receive a message")
+			// log.Err(err.Error())
 			break
 		}
 
@@ -142,8 +142,8 @@ func (lc *LogClient) WatchAlerts() error {
 	for lc.Running {
 		res, err := lc.alertStream.Recv()
 		if err != nil {
-			fmt.Println("Failed to receive a log")
-			fmt.Println(err.Error())
+			log.Err("Failed to receive a log")
+			// log.Err(err.Error())
 			break
 		}
 
@@ -161,8 +161,8 @@ func (lc *LogClient) WatchLogs() error {
 	for lc.Running {
 		res, err := lc.logStream.Recv()
 		if err != nil {
-			fmt.Println("Failed to receive a log")
-			fmt.Println(err.Error())
+			log.Err("Failed to receive a log")
+			// log.Err(err.Error())
 			break
 		}
 
