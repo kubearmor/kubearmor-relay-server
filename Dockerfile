@@ -8,14 +8,16 @@ RUN apk add --no-cache bash git wget python3 linux-headers build-base clang clan
 WORKDIR /usr/src/kubearmor-relay-server
 
 COPY ./core ./core
+COPY ./log ./log
 COPY ./go.mod ./go.mod
+COPY ./go.sum ./go.sum
 COPY ./main.go ./main.go
 
 RUN GOOS=linux GOARCH=amd64 go build -a -ldflags '-s -w' -o kubearmor-relay-server main.go
 
 ### Make executable image
 
-FROM alpine:3.12
+FROM alpine:3.14
 
 COPY --from=builder /usr/src/kubearmor-relay-server/kubearmor-relay-server /KubeArmor/kubearmor-relay-server
 
