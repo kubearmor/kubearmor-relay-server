@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"flag"
@@ -10,8 +11,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	rest "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -226,37 +229,45 @@ func (kh *K8sHandler) DoRequest(cmd string, data interface{}, path string) ([]by
 // == Pods == //
 // ========== //
 
-// WatchK8sPods Function
-func (kh *K8sHandler) WatchK8sPods() *http.Response {
+func containsElement(slice interface{}, element interface{}) bool {
+	switch reflect.TypeOf(slice).Kind() {
+	case reflect.Slice:
+		s := reflect.ValueOf(slice)
+
+		for i := 0; i < s.Len(); i++ {
+			val := s.Index(i).Interface()
+			if reflect.DeepEqual(val, element) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GetKubeArmorNodes Function
+func (kh *K8sHandler) GetKubeArmorNodes() []string {
+	nodeIPs := []string{}
+
 	if !IsK8sEnv() { // not Kubernetes
-		return nil
+		return nodeIPs
 	}
 
-	if IsInK8sCluster() { // kube-apiserver
-		URL := "https://" + kh.K8sHost + ":" + kh.K8sPort + "/api/v1/pods?watch=true"
+	pods, err := kh.K8sClient.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return nodeIPs
+	}
 
-		req, err := http.NewRequest("GET", URL, nil)
-		if err != nil {
-			return nil
+	for _, pod := range pods.Items {
+		if val, ok := pod.ObjectMeta.Labels["kubearmor-app"]; !ok {
+			continue
+		} else if val != "kubearmor" {
+			continue
 		}
 
-		req.Header.Add("Content-Type", "application/json")
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", kh.K8sToken))
-
-		resp, err := kh.WatchClient.Do(req)
-		if err != nil {
-			return nil
+		if !containsElement(nodeIPs, pod.Status.HostIP) {
+			nodeIPs = append(nodeIPs, pod.Status.HostIP)
 		}
-
-		return resp
 	}
 
-	// kube-proxy (local)
-	URL := "http://" + kh.K8sHost + ":" + kh.K8sPort + "/api/v1/pods?watch=true"
-
-	if resp, err := http.Get(URL); err == nil {
-		return resp
-	}
-
-	return nil
+	return nodeIPs
 }

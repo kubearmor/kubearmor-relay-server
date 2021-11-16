@@ -3,10 +3,9 @@ package core
 import (
 	"context"
 	"math/rand"
-	"sync"
 
 	pb "github.com/kubearmor/KubeArmor/protobuf"
-	"github.com/kubearmor/kubearmor-relay-server/log"
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"google.golang.org/grpc"
 )
 
@@ -36,9 +35,6 @@ type LogClient struct {
 
 	// logs
 	logStream pb.LogService_WatchLogsClient
-
-	// wait group
-	WgClient sync.WaitGroup
 }
 
 // NewClient Function
@@ -47,48 +43,56 @@ func NewClient(server string) *LogClient {
 
 	lc.Running = true
 
+	// == //
+
 	lc.server = server
 
 	conn, err := grpc.Dial(lc.server, grpc.WithInsecure())
 	if err != nil {
-		log.Errf("Failed to connect to a gRPC server (%s)\n", err.Error())
+		log.Warnf("Failed to connect to a gRPC server (%s)\n", err.Error())
 		return nil
 	}
 	lc.conn = conn
 
 	lc.client = pb.NewLogServiceClient(lc.conn)
 
+	// == //
+
 	msgIn := pb.RequestMessage{}
 	msgIn.Filter = ""
 
 	msgStream, err := lc.client.WatchMessages(context.Background(), &msgIn)
 	if err != nil {
-		log.Errf("Failed to call WatchMessages() (%s)\n", err.Error())
+		log.Warnf("Failed to call WatchMessages (%s)\n", err.Error())
 		return nil
 	}
 	lc.msgStream = msgStream
+
+	// == //
 
 	alertIn := pb.RequestMessage{}
 	alertIn.Filter = ""
 
 	alertStream, err := lc.client.WatchAlerts(context.Background(), &alertIn)
 	if err != nil {
-		log.Errf("Failed to call WatchAlerts() (%s)\n", err.Error())
+		log.Warnf("Failed to call WatchAlerts (%s)\n", err.Error())
 		return nil
 	}
 	lc.alertStream = alertStream
+
+	// == //
 
 	logIn := pb.RequestMessage{}
 	logIn.Filter = ""
 
 	logStream, err := lc.client.WatchLogs(context.Background(), &logIn)
 	if err != nil {
-		log.Errf("Failed to call WatchLogs() (%s)\n", err.Error())
+		log.Warnf("Failed to call WatchLogs (%s)\n", err.Error())
 		return nil
 	}
 	lc.logStream = logStream
 
-	lc.WgClient = sync.WaitGroup{}
+	// == //
 
 	return lc
 }
@@ -102,8 +106,7 @@ func (lc *LogClient) DoHealthCheck() bool {
 	nonce := pb.NonceMessage{Nonce: randNum}
 	res, err := lc.client.HealthCheck(context.Background(), &nonce)
 	if err != nil {
-		log.Err("Failed to check the liveness of the gRPC server")
-		// log.Err(err.Error())
+		log.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", lc.server)
 		return false
 	}
 
@@ -117,14 +120,14 @@ func (lc *LogClient) DoHealthCheck() bool {
 
 // WatchMessages Function
 func (lc *LogClient) WatchMessages() error {
-	lc.WgClient.Add(1)
-	defer lc.WgClient.Done()
-
 	for lc.Running {
 		res, err := lc.msgStream.Recv()
 		if err != nil {
-			log.Err("Failed to receive a message")
-			// log.Err(err.Error())
+			if lc.Running {
+				log.Warnf("Failed to receive a message from KubeArmor's gRPC service (%s)", lc.server)
+				lc.DestroyClient()
+				return err
+			}
 			break
 		}
 
@@ -136,14 +139,14 @@ func (lc *LogClient) WatchMessages() error {
 
 // WatchAlerts Function
 func (lc *LogClient) WatchAlerts() error {
-	lc.WgClient.Add(1)
-	defer lc.WgClient.Done()
-
 	for lc.Running {
 		res, err := lc.alertStream.Recv()
 		if err != nil {
-			log.Err("Failed to receive a log")
-			// log.Err(err.Error())
+			if lc.Running {
+				log.Warnf("Failed to receive a log from KubeArmor's gRPC service (%s)", lc.server)
+				lc.DestroyClient()
+				return err
+			}
 			break
 		}
 
@@ -155,22 +158,18 @@ func (lc *LogClient) WatchAlerts() error {
 
 // WatchLogs Function
 func (lc *LogClient) WatchLogs() error {
-	lc.WgClient.Add(1)
-	defer lc.WgClient.Done()
-
 	for lc.Running {
 		res, err := lc.logStream.Recv()
 		if err != nil {
-			log.Err("Failed to receive a log")
-			// log.Err(err.Error())
+			if lc.Running {
+				log.Warnf("Failed to receive a log from KubeArmor's gRPC service (%s)", lc.server)
+				lc.DestroyClient()
+				return err
+			}
 			break
 		}
 
-		select {
-		case LogQueue <- *res:
-			// non-blocking: possible to loss some of logs
-		}
-
+		LogQueue <- *res
 	}
 
 	return nil
@@ -178,11 +177,11 @@ func (lc *LogClient) WatchLogs() error {
 
 // DestroyClient Function
 func (lc *LogClient) DestroyClient() error {
+	lc.Running = false
+
 	if err := lc.conn.Close(); err != nil {
 		return err
 	}
-
-	lc.WgClient.Wait()
 
 	return nil
 }
