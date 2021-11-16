@@ -2,12 +2,12 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/kubearmor/kubearmor-relay-server/core"
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/core"
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 )
 
 // StopChan Channel
@@ -27,7 +27,6 @@ func GetOSSigChannel() chan os.Signal {
 	c := make(chan os.Signal, 1)
 
 	signal.Notify(c,
-		syscall.SIGKILL,
 		syscall.SIGHUP,
 		syscall.SIGINT,
 		syscall.SIGTERM,
@@ -50,33 +49,33 @@ func main() {
 
 	// == //
 
-	// create a client
+	// create a relay server
 	relayServer := core.NewRelayServer(*gRPCPortPtr)
 	if relayServer == nil {
-		fmt.Printf("Failed to create a relay server (:%s)\n", *gRPCPortPtr)
+		log.Warnf("Failed to create a relay server (:%s)", *gRPCPortPtr)
 		return
 	}
-	fmt.Printf("Created a relay server (:%s)\n", *gRPCPortPtr)
+	log.Printf("Created a relay server (:%s)", *gRPCPortPtr)
 
 	// serve log feeds
 	go relayServer.ServeLogFeeds()
-	fmt.Println("Started to serve gRPC-based log feeds")
+	log.Print("Started to serve gRPC-based log feeds")
 
 	// get log feeds
 	go relayServer.GetFeedsFromNodes()
-	fmt.Println("Started to receive log feeds from each node")
+	log.Print("Started to receive log feeds from each node")
 
 	// listen for interrupt signals
 	sigChan := GetOSSigChannel()
 	<-sigChan
 	close(StopChan)
 
-	// destroy the client
+	// destroy the relay server
 	if err := relayServer.DestroyRelayServer(); err != nil {
-		fmt.Printf("Failed to destroy the relay server (%s)\n", err.Error())
+		log.Warnf("Failed to destroy the relay server (%s)", err.Error())
 		return
 	}
-	fmt.Println("Destroyed the relay server")
+	log.Print("Destroyed the relay server")
 
 	// == //
 }
