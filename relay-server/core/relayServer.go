@@ -341,7 +341,6 @@ func createClient(server string) *LogClient {
 	// create a client
 	client := NewClient(server)
 	if client == nil {
-		log.Errf("Failed to connect to KubeArmor's gRPC service (%s)\n", server)
 		return nil
 	}
 

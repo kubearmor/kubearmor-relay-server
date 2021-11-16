@@ -49,7 +49,7 @@ func NewClient(server string) *LogClient {
 
 	conn, err := grpc.Dial(lc.server, grpc.WithInsecure())
 	if err != nil {
-		log.Warnf("Failed to connect to a gRPC server (%s)\n", err.Error())
+		log.Warnf("Failed to connect to KubeArmor's gRPC service (%s)\n", server)
 		return nil
 	}
 	lc.conn = conn
@@ -63,7 +63,7 @@ func NewClient(server string) *LogClient {
 
 	msgStream, err := lc.client.WatchMessages(context.Background(), &msgIn)
 	if err != nil {
-		log.Warnf("Failed to call WatchMessages (%s)\n", err.Error())
+		log.Warnf("Failed to call WatchMessages (%s)\n", server)
 		return nil
 	}
 	lc.msgStream = msgStream
@@ -75,7 +75,7 @@ func NewClient(server string) *LogClient {
 
 	alertStream, err := lc.client.WatchAlerts(context.Background(), &alertIn)
 	if err != nil {
-		log.Warnf("Failed to call WatchAlerts (%s)\n", err.Error())
+		log.Warnf("Failed to call WatchAlerts (%s)\n", server)
 		return nil
 	}
 	lc.alertStream = alertStream
@@ -87,7 +87,7 @@ func NewClient(server string) *LogClient {
 
 	logStream, err := lc.client.WatchLogs(context.Background(), &logIn)
 	if err != nil {
-		log.Warnf("Failed to call WatchLogs (%s)\n", err.Error())
+		log.Warnf("Failed to call WatchLogs (%s)\n", server)
 		return nil
 	}
 	lc.logStream = logStream
