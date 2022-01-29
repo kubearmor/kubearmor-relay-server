@@ -10,6 +10,7 @@ import (
 	pb "github.com/kubearmor/KubeArmor/protobuf"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
 	v1 "k8s.io/api/core/v1"
@@ -304,8 +305,17 @@ func NewRelayServer(port string) *RelayServer {
 	}
 	rs.Listener = listener
 
+	kaep := keepalive.EnforcementPolicy{
+		PermitWithoutStream: true,
+	}
+
+	kasp := keepalive.ServerParameters{
+		Time:    1 * time.Second,
+		Timeout: 1 * time.Second,
+	}
+
 	// create a log server
-	rs.LogServer = grpc.NewServer()
+	rs.LogServer = grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
 	// register a log service
 	logService := &LogService{}
