@@ -3,9 +3,11 @@ package core
 import (
 	"context"
 	"math/rand"
+	"time"
+
+	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 
 	pb "github.com/kubearmor/KubeArmor/protobuf"
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"google.golang.org/grpc"
 )
 
@@ -49,7 +51,7 @@ func NewClient(server string) *LogClient {
 
 	conn, err := grpc.Dial(lc.server, grpc.WithInsecure())
 	if err != nil {
-		log.Warnf("Failed to connect to KubeArmor's gRPC service (%s)\n", server)
+		kg.Warnf("Failed to connect to KubeArmor's gRPC service (%s)\n", server)
 		return nil
 	}
 	lc.conn = conn
@@ -63,7 +65,7 @@ func NewClient(server string) *LogClient {
 
 	msgStream, err := lc.client.WatchMessages(context.Background(), &msgIn)
 	if err != nil {
-		log.Warnf("Failed to call WatchMessages (%s)\n", server)
+		kg.Warnf("Failed to call WatchMessages (%s)\n", server)
 		return nil
 	}
 	lc.msgStream = msgStream
@@ -71,11 +73,11 @@ func NewClient(server string) *LogClient {
 	// == //
 
 	alertIn := pb.RequestMessage{}
-	alertIn.Filter = ""
+	alertIn.Filter = "all"
 
 	alertStream, err := lc.client.WatchAlerts(context.Background(), &alertIn)
 	if err != nil {
-		log.Warnf("Failed to call WatchAlerts (%s)\n", server)
+		kg.Warnf("Failed to call WatchAlerts (%s)\n", server)
 		return nil
 	}
 	lc.alertStream = alertStream
@@ -83,11 +85,11 @@ func NewClient(server string) *LogClient {
 	// == //
 
 	logIn := pb.RequestMessage{}
-	logIn.Filter = ""
+	logIn.Filter = "all"
 
 	logStream, err := lc.client.WatchLogs(context.Background(), &logIn)
 	if err != nil {
-		log.Warnf("Failed to call WatchLogs (%s)\n", server)
+		kg.Warnf("Failed to call WatchLogs (%s)\n", server)
 		return nil
 	}
 	lc.logStream = logStream
@@ -106,7 +108,7 @@ func (lc *LogClient) DoHealthCheck() bool {
 	nonce := pb.NonceMessage{Nonce: randNum}
 	res, err := lc.client.HealthCheck(context.Background(), &nonce)
 	if err != nil {
-		log.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", lc.server)
+		kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", lc.server)
 		return false
 	}
 
@@ -124,14 +126,19 @@ func (lc *LogClient) WatchMessages() error {
 		res, err := lc.msgStream.Recv()
 		if err != nil {
 			if lc.Running {
-				log.Warnf("Failed to receive a message from KubeArmor's gRPC service (%s)", lc.server)
+				kg.Warnf("Failed to receive a message (%s)", lc.server)
 				lc.DestroyClient()
 				return err
 			}
 			break
 		}
 
-		MsgQueue <- *res
+		MsgLock.Lock()
+		defer MsgLock.Unlock()
+
+		for uid := range MsgStructs {
+			MsgStructs[uid].Queue.Push(*res)
+		}
 	}
 
 	return nil
@@ -143,14 +150,19 @@ func (lc *LogClient) WatchAlerts() error {
 		res, err := lc.alertStream.Recv()
 		if err != nil {
 			if lc.Running {
-				log.Warnf("Failed to receive a log from KubeArmor's gRPC service (%s)", lc.server)
+				kg.Warnf("Failed to receive an alert (%s)", lc.server)
 				lc.DestroyClient()
 				return err
 			}
 			break
 		}
 
-		AlertQueue <- *res
+		AlertLock.Lock()
+		defer AlertLock.Unlock()
+
+		for uid := range AlertStructs {
+			AlertStructs[uid].Queue.Push(*res)
+		}
 	}
 
 	return nil
@@ -162,14 +174,19 @@ func (lc *LogClient) WatchLogs() error {
 		res, err := lc.logStream.Recv()
 		if err != nil {
 			if lc.Running {
-				log.Warnf("Failed to receive a log from KubeArmor's gRPC service (%s)", lc.server)
+				kg.Warnf("Failed to receive a log (%s)", lc.server)
 				lc.DestroyClient()
 				return err
 			}
 			break
 		}
 
-		LogQueue <- *res
+		LogLock.Lock()
+		defer LogLock.Unlock()
+
+		for uid := range LogStructs {
+			LogStructs[uid].Queue.Push(*res)
+		}
 	}
 
 	return nil
@@ -178,6 +195,9 @@ func (lc *LogClient) WatchLogs() error {
 // DestroyClient Function
 func (lc *LogClient) DestroyClient() error {
 	lc.Running = false
+
+	// wait for a while
+	time.Sleep(1 * time.Second)
 
 	if err := lc.conn.Close(); err != nil {
 		return err

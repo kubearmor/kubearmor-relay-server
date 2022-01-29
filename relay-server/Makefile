@@ -22,4 +22,3 @@ push-image:
 .PHONY: clean
 clean:
 	cd $(CURDIR); sudo rm -f kubearmor-relay-server
-	#cd $(CURDIR); find . -name go.sum | xargs -I {} rm -f {}

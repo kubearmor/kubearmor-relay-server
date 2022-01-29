@@ -9,10 +9,13 @@ import (
 	"github.com/google/uuid"
 	pb "github.com/kubearmor/KubeArmor/protobuf"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/log"
+	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
+	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 )
 
 // ============ //
@@ -22,21 +25,8 @@ import (
 // Running flag
 var Running bool
 
-// MsgQueue for Messages
-var MsgQueue chan pb.Message
-
-// AlertQueue for alerts
-var AlertQueue chan pb.Alert
-
-// LogQueue for Logs
-var LogQueue chan pb.Log
-
 func init() {
 	Running = true
-
-	MsgQueue = make(chan pb.Message, 2048)
-	AlertQueue = make(chan pb.Alert, 8192)
-	LogQueue = make(chan pb.Log, 65536)
 }
 
 // ========== //
@@ -45,32 +35,43 @@ func init() {
 
 // MsgStruct Structure
 type MsgStruct struct {
-	Client pb.LogService_WatchMessagesServer
 	Filter string
+	Queue  *kl.Queue
 }
+
+// MsgStructs Map
+var MsgStructs map[string]MsgStruct
+
+// MsgLock Lock
+var MsgLock *sync.RWMutex
 
 // AlertStruct Structure
 type AlertStruct struct {
-	Client pb.LogService_WatchAlertsServer
 	Filter string
+	Queue  *kl.Queue
 }
+
+// AlertStructs Map
+var AlertStructs map[string]AlertStruct
+
+// AlertLock Lock
+var AlertLock *sync.RWMutex
 
 // LogStruct Structure
 type LogStruct struct {
-	Client pb.LogService_WatchLogsServer
 	Filter string
+	Queue  *kl.Queue
 }
+
+// LogStructs Map
+var LogStructs map[string]LogStruct
+
+// LogLock Lock
+var LogLock *sync.RWMutex
 
 // LogService Structure
 type LogService struct {
-	MsgStructs map[string]MsgStruct
-	MsgLock    sync.RWMutex
-
-	AlertStructs map[string]AlertStruct
-	AlertLock    sync.RWMutex
-
-	LogStructs map[string]LogStruct
-	LogLock    sync.RWMutex
+	//
 }
 
 // HealthCheck Function
@@ -80,60 +81,57 @@ func (ls *LogService) HealthCheck(ctx context.Context, nonce *pb.NonceMessage) (
 }
 
 // addMsgStruct Function
-func (ls *LogService) addMsgStruct(uid string, srv pb.LogService_WatchMessagesServer, filter string) {
-	ls.MsgLock.Lock()
-	defer ls.MsgLock.Unlock()
+func (ls *LogService) addMsgStruct(uid string, filter string) {
+	MsgLock.Lock()
+	defer MsgLock.Unlock()
 
 	msgStruct := MsgStruct{}
-	msgStruct.Client = srv
 	msgStruct.Filter = filter
+	msgStruct.Queue = kl.NewQueue()
 
-	ls.MsgStructs[uid] = msgStruct
+	MsgStructs[uid] = msgStruct
+
+	kg.Printf("Added a new client (%s) for WatchMessages", uid)
 }
 
 // removeMsgStruct Function
 func (ls *LogService) removeMsgStruct(uid string) {
-	ls.MsgLock.Lock()
-	defer ls.MsgLock.Unlock()
+	MsgLock.Lock()
+	defer MsgLock.Unlock()
 
-	delete(ls.MsgStructs, uid)
-}
+	delete(MsgStructs, uid)
 
-// getMsgStructs Function
-func (ls *LogService) getMsgStructs() []MsgStruct {
-	msgStructs := []MsgStruct{}
-
-	ls.MsgLock.RLock()
-	defer ls.MsgLock.RUnlock()
-
-	for _, mgs := range ls.MsgStructs {
-		msgStructs = append(msgStructs, mgs)
-	}
-
-	return msgStructs
+	kg.Printf("Deleted the client (%s) for WatchMessages", uid)
 }
 
 // WatchMessages Function
 func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_WatchMessagesServer) error {
-	var err error
 	uid := uuid.Must(uuid.NewRandom()).String()
 
-	ls.addMsgStruct(uid, svr, req.Filter)
+	ls.addMsgStruct(uid, req.Filter)
 	defer ls.removeMsgStruct(uid)
 
 	for Running {
-		msg := <-MsgQueue
-
-		msgStructs := ls.getMsgStructs()
-		for _, mgs := range msgStructs {
-			if err = mgs.Client.Send(&msg); err != nil {
-				log.Warn("Failed to send a message")
-				break
+		select {
+		case <-svr.Context().Done():
+			return nil
+		default:
+			if msgInt := MsgStructs[uid].Queue.Pop(); msgInt != nil {
+				msg := msgInt.(pb.Message)
+				if status, ok := status.FromError(svr.Send(&msg)); ok {
+					switch status.Code() {
+					case codes.OK:
+						// noop
+					case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
+						kg.Warnf("Failed to send a message=[%+v] err=[%s]", msg, status.Err().Error())
+						return status.Err()
+					default:
+						return nil
+					}
+				}
+			} else {
+				time.Sleep(time.Second * 1)
 			}
-		}
-
-		if err != nil {
-			break
 		}
 	}
 
@@ -141,60 +139,61 @@ func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_Wa
 }
 
 // addAlertStruct Function
-func (ls *LogService) addAlertStruct(uid string, srv pb.LogService_WatchAlertsServer, filter string) {
-	ls.AlertLock.Lock()
-	defer ls.AlertLock.Unlock()
+func (ls *LogService) addAlertStruct(uid string, filter string) {
+	AlertLock.Lock()
+	defer AlertLock.Unlock()
 
 	alertStruct := AlertStruct{}
-	alertStruct.Client = srv
 	alertStruct.Filter = filter
+	alertStruct.Queue = kl.NewQueue()
 
-	ls.AlertStructs[uid] = alertStruct
+	AlertStructs[uid] = alertStruct
+
+	kg.Printf("Added a new client (%s, %s) for WatchAlerts", uid, filter)
 }
 
 // removeAlertStruct Function
 func (ls *LogService) removeAlertStruct(uid string) {
-	ls.AlertLock.Lock()
-	defer ls.AlertLock.Unlock()
+	AlertLock.Lock()
+	defer AlertLock.Unlock()
 
-	delete(ls.AlertStructs, uid)
-}
+	delete(AlertStructs, uid)
 
-// getAlertStructs Function
-func (ls *LogService) getAlertStructs() []AlertStruct {
-	alertStructs := []AlertStruct{}
-
-	ls.AlertLock.RLock()
-	defer ls.AlertLock.RUnlock()
-
-	for _, als := range ls.AlertStructs {
-		alertStructs = append(alertStructs, als)
-	}
-
-	return alertStructs
+	kg.Printf("Deleted the client (%s) for WatchAlerts", uid)
 }
 
 // WatchAlerts Function
 func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_WatchAlertsServer) error {
-	var err error
 	uid := uuid.Must(uuid.NewRandom()).String()
 
-	ls.addAlertStruct(uid, svr, req.Filter)
+	if req.Filter != "all" && req.Filter != "policy" {
+		return nil
+	}
+
+	ls.addAlertStruct(uid, req.Filter)
 	defer ls.removeAlertStruct(uid)
 
 	for Running {
-		alert := <-AlertQueue
-
-		alertStructs := ls.getAlertStructs()
-		for _, als := range alertStructs {
-			if err = als.Client.Send(&alert); err != nil {
-				log.Warn("Failed to send an alert")
-				break
+		select {
+		case <-svr.Context().Done():
+			return nil
+		default:
+			if alertInt := AlertStructs[uid].Queue.Pop(); alertInt != nil {
+				alert := alertInt.(pb.Alert)
+				if status, ok := status.FromError(svr.Send(&alert)); ok {
+					switch status.Code() {
+					case codes.OK:
+						// noop
+					case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
+						kg.Warnf("Failed to send an alert=[%+v] err=[%s]", alert, status.Err().Error())
+						return status.Err()
+					default:
+						return nil
+					}
+				}
+			} else {
+				time.Sleep(time.Second * 1)
 			}
-		}
-
-		if err != nil {
-			break
 		}
 	}
 
@@ -202,60 +201,61 @@ func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_Watc
 }
 
 // addLogStruct Function
-func (ls *LogService) addLogStruct(uid string, srv pb.LogService_WatchLogsServer, filter string) {
-	ls.LogLock.Lock()
-	defer ls.LogLock.Unlock()
+func (ls *LogService) addLogStruct(uid string, filter string) {
+	LogLock.Lock()
+	defer LogLock.Unlock()
 
 	logStruct := LogStruct{}
-	logStruct.Client = srv
 	logStruct.Filter = filter
+	logStruct.Queue = kl.NewQueue()
 
-	ls.LogStructs[uid] = logStruct
+	LogStructs[uid] = logStruct
+
+	kg.Printf("Added a new client (%s, %s) for WatchLogs", uid, filter)
 }
 
 // removeLogStruct Function
 func (ls *LogService) removeLogStruct(uid string) {
-	ls.LogLock.Lock()
-	defer ls.LogLock.Unlock()
+	LogLock.Lock()
+	defer LogLock.Unlock()
 
-	delete(ls.LogStructs, uid)
-}
+	delete(LogStructs, uid)
 
-// getLogStructs Function
-func (ls *LogService) getLogStructs() []LogStruct {
-	logStructs := []LogStruct{}
-
-	ls.LogLock.RLock()
-	defer ls.LogLock.RUnlock()
-
-	for _, lgs := range ls.LogStructs {
-		logStructs = append(logStructs, lgs)
-	}
-
-	return logStructs
+	kg.Printf("Deleted the client (%s) for WatchLogs", uid)
 }
 
 // WatchLogs Function
 func (ls *LogService) WatchLogs(req *pb.RequestMessage, svr pb.LogService_WatchLogsServer) error {
-	var err error
 	uid := uuid.Must(uuid.NewRandom()).String()
 
-	ls.addLogStruct(uid, svr, req.Filter)
+	if req.Filter != "all" && req.Filter != "system" {
+		return nil
+	}
+
+	ls.addLogStruct(uid, req.Filter)
 	defer ls.removeLogStruct(uid)
 
 	for Running {
-		lg := <-LogQueue
-
-		logStructs := ls.getLogStructs()
-		for _, lgs := range logStructs {
-			if err = lgs.Client.Send(&lg); err != nil {
-				log.Warn("Failed to send a log")
-				break
+		select {
+		case <-svr.Context().Done():
+			return nil
+		default:
+			if logInt := LogStructs[uid].Queue.Pop(); logInt != nil {
+				log := logInt.(pb.Log)
+				if status, ok := status.FromError(svr.Send(&log)); ok {
+					switch status.Code() {
+					case codes.OK:
+						// noop
+					case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
+						kg.Warnf("Failed to send a log=[%+v] err=[%s]", log, status.Err().Error())
+						return status.Err()
+					default:
+						return nil
+					}
+				}
+			} else {
+				time.Sleep(time.Second * 1)
 			}
-		}
-
-		if err != nil {
-			break
 		}
 	}
 
@@ -299,8 +299,7 @@ func NewRelayServer(port string) *RelayServer {
 	// listen to gRPC port
 	listener, err := net.Listen("tcp", ":"+rs.Port)
 	if err != nil {
-		log.Errf("Failed to listen a port (%s)\n", rs.Port)
-		// log.Err(err.Error())
+		kg.Errf("Failed to listen a port (%s)\n", rs.Port)
 		return nil
 	}
 	rs.Listener = listener
@@ -309,15 +308,20 @@ func NewRelayServer(port string) *RelayServer {
 	rs.LogServer = grpc.NewServer()
 
 	// register a log service
-	logService := &LogService{
-		MsgStructs:   make(map[string]MsgStruct),
-		MsgLock:      sync.RWMutex{},
-		AlertStructs: make(map[string]AlertStruct),
-		AlertLock:    sync.RWMutex{},
-		LogStructs:   make(map[string]LogStruct),
-		LogLock:      sync.RWMutex{},
-	}
+	logService := &LogService{}
 	pb.RegisterLogServiceServer(rs.LogServer, logService)
+
+	// initialize msg structs
+	MsgStructs = make(map[string]MsgStruct)
+	MsgLock = &sync.RWMutex{}
+
+	// initialize alert structs
+	AlertStructs = make(map[string]AlertStruct)
+	AlertLock = &sync.RWMutex{}
+
+	// initialize log structs
+	LogStructs = make(map[string]LogStruct)
+	LogLock = &sync.RWMutex{}
 
 	// reset a client list
 	rs.ClientList = map[string]*LogClient{}
@@ -326,73 +330,6 @@ func NewRelayServer(port string) *RelayServer {
 	rs.WgServer = sync.WaitGroup{}
 
 	return rs
-}
-
-// ServeLogFeeds Function
-func (rs *RelayServer) ServeLogFeeds() {
-	rs.WgServer.Add(1)
-	defer rs.WgServer.Done()
-
-	// feed logs
-	rs.LogServer.Serve(rs.Listener)
-}
-
-func createClient(server string) *LogClient {
-	// create a client
-	client := NewClient(server)
-	if client == nil {
-		return nil
-	}
-
-	// do healthcheck
-	if ok := client.DoHealthCheck(); !ok {
-		log.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", server)
-		return nil
-	}
-	log.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", server)
-
-	// watch messages
-	go client.WatchMessages()
-	log.Print("Started to watch messages from " + server)
-
-	// watch alerts
-	go client.WatchAlerts()
-	log.Print("Started to watch alerts from " + server)
-
-	// watch logs
-	go client.WatchLogs()
-	log.Print("Started to watch logs from " + server)
-
-	return client
-}
-
-// GetFeedsFromNodes Function
-func (rs *RelayServer) GetFeedsFromNodes() {
-	rs.WgServer.Add(1)
-	defer rs.WgServer.Done()
-
-	if K8s.InitK8sClient() {
-		log.Print("Initialized the Kubernetes client")
-
-		for Running {
-			newNodes := K8s.GetKubeArmorNodes()
-
-			for _, nodeIP := range newNodes {
-				server := nodeIP + ":" + rs.Port
-
-				if _, ok := rs.ClientList[nodeIP]; !ok {
-					client := createClient(server)
-					if client != nil {
-						rs.ClientList[nodeIP] = client
-					}
-				} else if !rs.ClientList[nodeIP].Running {
-					delete(rs.ClientList, nodeIP)
-				}
-			}
-
-			time.Sleep(time.Second * 1)
-		}
-	}
 }
 
 // DestroyRelayServer Function
@@ -413,4 +350,79 @@ func (rs *RelayServer) DestroyRelayServer() error {
 	rs.WgServer.Wait()
 
 	return nil
+}
+
+// =============== //
+// == Log Feeds == //
+// =============== //
+
+// ServeLogFeeds Function
+func (rs *RelayServer) ServeLogFeeds() {
+	rs.WgServer.Add(1)
+	defer rs.WgServer.Done()
+
+	// feed logs
+	rs.LogServer.Serve(rs.Listener)
+}
+
+// =============== //
+// == KubeArmor == //
+// =============== //
+
+// ConnectToKubeArmor Function
+func (rs *RelayServer) ConnectToKubeArmor(server string) *LogClient {
+	// create a client
+	client := NewClient(server)
+	if client == nil {
+		return nil
+	}
+
+	// do healthcheck
+	if ok := client.DoHealthCheck(); !ok {
+		kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", server)
+		return nil
+	}
+	kg.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", server)
+
+	// watch messages
+	go client.WatchMessages()
+	kg.Print("Started to watch messages from " + server)
+
+	// watch alerts
+	go client.WatchAlerts()
+	kg.Print("Started to watch alerts from " + server)
+
+	// watch logs
+	go client.WatchLogs()
+	kg.Print("Started to watch logs from " + server)
+
+	return client
+}
+
+// GetFeedsFromNodes Function
+func (rs *RelayServer) GetFeedsFromNodes() {
+	rs.WgServer.Add(1)
+	defer rs.WgServer.Done()
+
+	if K8s.InitK8sClient() {
+		kg.Print("Initialized the Kubernetes client")
+
+		for Running {
+			newNodes := K8s.GetKubeArmorNodes()
+
+			for _, nodeIP := range newNodes {
+				server := nodeIP + ":" + rs.Port
+
+				if _, ok := rs.ClientList[nodeIP]; !ok {
+					if client := rs.ConnectToKubeArmor(server); client != nil {
+						rs.ClientList[nodeIP] = client
+					}
+				} else if !rs.ClientList[nodeIP].Running {
+					delete(rs.ClientList, nodeIP)
+				}
+			}
+
+			time.Sleep(time.Second * 1)
+		}
+	}
 }

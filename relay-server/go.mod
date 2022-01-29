@@ -4,6 +4,7 @@ go 1.15
 
 replace (
 	github.com/kubearmor/kubearmor-relay-server/relay-server => ./
+	github.com/kubearmor/kubearmor-relay-server/relay-server/common => ./common
 	github.com/kubearmor/kubearmor-relay-server/relay-server/core => ./core
 	github.com/kubearmor/kubearmor-relay-server/relay-server/log => ./log
 )
