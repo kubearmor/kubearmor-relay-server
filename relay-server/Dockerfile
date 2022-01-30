@@ -7,8 +7,9 @@ RUN apk add --no-cache bash git wget python3 linux-headers build-base clang clan
 
 WORKDIR /usr/src/kubearmor-relay-server
 
-COPY ./core ./core
+COPY ./common ./common
 COPY ./log ./log
+COPY ./server ./server
 COPY ./go.mod ./go.mod
 COPY ./go.sum ./go.sum
 COPY ./main.go ./main.go

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2021 Authors of KubeArmor
+
 package main
 
 import (
@@ -6,8 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/core"
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/log"
+	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
 )
 
 // StopChan Channel
@@ -50,20 +53,20 @@ func main() {
 	// == //
 
 	// create a relay server
-	relayServer := core.NewRelayServer(*gRPCPortPtr)
+	relayServer := server.NewRelayServer(*gRPCPortPtr)
 	if relayServer == nil {
-		log.Warnf("Failed to create a relay server (:%s)", *gRPCPortPtr)
+		kg.Warnf("Failed to create a relay server (:%s)", *gRPCPortPtr)
 		return
 	}
-	log.Printf("Created a relay server (:%s)", *gRPCPortPtr)
+	kg.Printf("Created a relay server (:%s)", *gRPCPortPtr)
 
-	// serve log feeds
+	// serve log feeds (to clients)
 	go relayServer.ServeLogFeeds()
-	log.Print("Started to serve gRPC-based log feeds")
+	kg.Print("Started to serve gRPC-based log feeds")
 
-	// get log feeds
+	// get log feeds (from KubeArmor)
 	go relayServer.GetFeedsFromNodes()
-	log.Print("Started to receive log feeds from each node")
+	kg.Print("Started to receive log feeds from each node")
 
 	// listen for interrupt signals
 	sigChan := GetOSSigChannel()
@@ -72,10 +75,10 @@ func main() {
 
 	// destroy the relay server
 	if err := relayServer.DestroyRelayServer(); err != nil {
-		log.Warnf("Failed to destroy the relay server (%s)", err.Error())
+		kg.Warnf("Failed to destroy the relay server (%s)", err.Error())
 		return
 	}
-	log.Print("Destroyed the relay server")
+	kg.Print("Destroyed the relay server")
 
 	// == //
 }

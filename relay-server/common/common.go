@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2021 Authors of KubeArmor
+
 package common
 
 import (
@@ -57,18 +60,22 @@ func IsK8sEnv() bool {
 // == Queue == //
 // =========== //
 
+// Queue Structure
 type Queue struct {
 	v *list.List
 }
 
+// NewQueue Function
 func NewQueue() *Queue {
 	return &Queue{list.New()}
 }
 
+// Push Function
 func (q *Queue) Push(val interface{}) {
 	q.v.PushBack(val)
 }
 
+// Pop Function
 func (q *Queue) Pop() interface{} {
 	front := q.v.Front()
 	if front != nil {
