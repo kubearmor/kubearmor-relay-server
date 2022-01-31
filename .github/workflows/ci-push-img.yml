@@ -6,7 +6,7 @@ on:
 
 jobs:
   push-docker-img:
-    name: Create auto-policy-discovery img
+    name: Create and push docker image
     if: github.repository == 'kubearmor/kubearmor-relay-server'
     runs-on: ubuntu-18.04
     timeout-minutes: 20
