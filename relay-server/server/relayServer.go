@@ -1,7 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2021 Authors of KubeArmor
+
 package server
 
 import (
 	"context"
+	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -24,8 +28,12 @@ import (
 // Running flag
 var Running bool
 
+// ClientList Map
+var ClientList map[string]int
+
 func init() {
 	Running = true
+	ClientList = map[string]int{}
 }
 
 // ========== //
@@ -261,6 +269,233 @@ func (ls *LogService) WatchLogs(req *pb.RequestMessage, svr pb.LogService_WatchL
 	return nil
 }
 
+// =============== //
+// == Log Feeds == //
+// =============== //
+
+// LogClient Structure
+type LogClient struct {
+	// flag
+	Running bool
+
+	// server
+	server string
+
+	// connection
+	conn *grpc.ClientConn
+
+	// client
+	client pb.LogServiceClient
+
+	// messages
+	msgStream pb.LogService_WatchMessagesClient
+
+	// alerts
+	alertStream pb.LogService_WatchAlertsClient
+
+	// logs
+	logStream pb.LogService_WatchLogsClient
+
+	// wait group
+	WgServer sync.WaitGroup
+}
+
+// NewClient Function
+func NewClient(server string) *LogClient {
+	lc := &LogClient{}
+
+	lc.Running = true
+
+	// == //
+
+	lc.server = server
+
+	conn, err := grpc.Dial(lc.server, grpc.WithInsecure())
+	if err != nil {
+		kg.Warnf("Failed to connect to KubeArmor's gRPC service (%s)\n", server)
+		return nil
+	}
+	lc.conn = conn
+
+	lc.client = pb.NewLogServiceClient(lc.conn)
+
+	// == //
+
+	msgIn := pb.RequestMessage{}
+	msgIn.Filter = ""
+
+	msgStream, err := lc.client.WatchMessages(context.Background(), &msgIn)
+	if err != nil {
+		kg.Warnf("Failed to call WatchMessages (%s)\n", server)
+		return nil
+	}
+	lc.msgStream = msgStream
+
+	// == //
+
+	alertIn := pb.RequestMessage{}
+	alertIn.Filter = "policy"
+
+	alertStream, err := lc.client.WatchAlerts(context.Background(), &alertIn)
+	if err != nil {
+		kg.Warnf("Failed to call WatchAlerts (%s)\n", server)
+		return nil
+	}
+	lc.alertStream = alertStream
+
+	// == //
+
+	logIn := pb.RequestMessage{}
+	logIn.Filter = "system"
+
+	logStream, err := lc.client.WatchLogs(context.Background(), &logIn)
+	if err != nil {
+		kg.Warnf("Failed to call WatchLogs (%s)\n", server)
+		return nil
+	}
+	lc.logStream = logStream
+
+	// == //
+
+	// set wait group
+	lc.WgServer = sync.WaitGroup{}
+
+	return lc
+}
+
+// DoHealthCheck Function
+func (lc *LogClient) DoHealthCheck() bool {
+	// #nosec
+	randNum := rand.Int31()
+
+	// send a nonce
+	nonce := pb.NonceMessage{Nonce: randNum}
+	res, err := lc.client.HealthCheck(context.Background(), &nonce)
+	if err != nil {
+		kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", lc.server)
+		return false
+	}
+
+	// check nonce
+	if randNum != res.Retval {
+		return false
+	}
+
+	return true
+}
+
+// WatchMessages Function
+func (lc *LogClient) WatchMessages() error {
+	lc.WgServer.Add(1)
+	defer lc.WgServer.Done()
+
+	var err error
+
+	for lc.Running {
+		var res *pb.Message
+
+		if res, err = lc.msgStream.Recv(); err != nil {
+			kg.Warnf("Failed to receive a message (%s)", lc.server)
+			break
+		}
+
+		msg := pb.Message{}
+
+		if err := kl.Clone(*res, &msg); err != nil {
+			kg.Warnf("Failed to clone a message (%v)", *res)
+			continue
+		}
+
+		MsgLock.Lock()
+		for uid := range MsgStructs {
+			MsgStructs[uid].Queue.Push(msg)
+		}
+		MsgLock.Unlock()
+	}
+
+	kg.Print("Stopped watching messages from " + lc.server)
+
+	return nil
+}
+
+// WatchAlerts Function
+func (lc *LogClient) WatchAlerts() error {
+	lc.WgServer.Add(1)
+	defer lc.WgServer.Done()
+
+	var err error
+
+	for lc.Running {
+		var res *pb.Alert
+
+		if res, err = lc.alertStream.Recv(); err != nil {
+			kg.Warnf("Failed to receive an alert (%s)", lc.server)
+			break
+		}
+
+		alert := pb.Alert{}
+
+		if err := kl.Clone(*res, &alert); err != nil {
+			kg.Warnf("Failed to clone an alert (%v)", *res)
+			continue
+		}
+
+		AlertLock.Lock()
+		for uid := range AlertStructs {
+			AlertStructs[uid].Queue.Push(alert)
+		}
+		AlertLock.Unlock()
+	}
+
+	kg.Print("Stopped watching alerts from " + lc.server)
+
+	return nil
+}
+
+// WatchLogs Function
+func (lc *LogClient) WatchLogs() error {
+	lc.WgServer.Add(1)
+	defer lc.WgServer.Done()
+
+	var err error
+
+	for lc.Running {
+		var res *pb.Log
+
+		if res, err = lc.logStream.Recv(); err != nil {
+			kg.Warnf("Failed to receive a log (%s)", lc.server)
+			break
+		}
+
+		log := pb.Log{}
+
+		if err := kl.Clone(*res, &log); err != nil {
+			kg.Warnf("Failed to clone a log (%v)", *res)
+		}
+
+		LogLock.Lock()
+		for uid := range LogStructs {
+			LogStructs[uid].Queue.Push(log)
+		}
+		LogLock.Unlock()
+	}
+
+	kg.Print("Stopped watching logs from " + lc.server)
+
+	return nil
+}
+
+// DestroyClient Function
+func (lc *LogClient) DestroyClient() error {
+	lc.Running = false
+
+	if err := lc.conn.Close(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // ================== //
 // == Relay Server == //
 // ================== //
@@ -361,6 +596,76 @@ func (rs *RelayServer) ServeLogFeeds() {
 
 	// feed logs
 	if err := rs.LogServer.Serve(rs.Listener); err != nil {
-		kg.Err(err.Error())
+		kg.Print("Terminated the gRPC service")
+	}
+}
+
+// =============== //
+// == KubeArmor == //
+// =============== //
+
+func connectToKubeArmor(nodeIP, port string) error {
+	// create connection info
+	server := nodeIP + ":" + port
+
+	// create a client
+	client := NewClient(server)
+	if client == nil {
+		return nil
+	}
+
+	// do healthcheck
+	if ok := client.DoHealthCheck(); !ok {
+		kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", server)
+		return nil
+	}
+	kg.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", server)
+
+	// watch messages
+	go client.WatchMessages()
+	kg.Print("Started to watch messages from " + server)
+
+	// watch alerts
+	go client.WatchAlerts()
+	kg.Print("Started to watch alerts from " + server)
+
+	// watch logs
+	go client.WatchLogs()
+	kg.Print("Started to watch logs from " + server)
+
+	// wait for other routines
+	client.WgServer.Wait()
+
+	if err := client.DestroyClient(); err != nil {
+		kg.Warnf("Failed to destroy the client (%s)", server)
+	}
+	kg.Printf("Destroyed the client (%s)", server)
+
+	// removed the client
+	delete(ClientList, nodeIP)
+
+	return nil
+}
+
+// GetFeedsFromNodes Function
+func (rs *RelayServer) GetFeedsFromNodes() {
+	rs.WgServer.Add(1)
+	defer rs.WgServer.Done()
+
+	if K8s.InitK8sClient() {
+		kg.Print("Initialized the Kubernetes client")
+
+		for Running {
+			newNodes := K8s.GetKubeArmorNodes()
+
+			for _, nodeIP := range newNodes {
+				if _, ok := ClientList[nodeIP]; !ok {
+					ClientList[nodeIP] = 1
+					go connectToKubeArmor(nodeIP, rs.Port)
+				}
+			}
+
+			time.Sleep(time.Second * 1)
+		}
 	}
 }
