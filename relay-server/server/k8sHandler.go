@@ -1,11 +1,13 @@
-package core
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2021 Authors of KubeArmor
+
+package server
 
 import (
 	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -13,6 +15,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"time"
+
+	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
+	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -61,12 +66,14 @@ func NewK8sHandler() *K8sHandler {
 
 	kh.HTTPClient = &http.Client{
 		Timeout: time.Second * 5,
+		// #nosec
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
 
 	kh.WatchClient = &http.Client{
+		// #nosec
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
@@ -79,49 +86,14 @@ func NewK8sHandler() *K8sHandler {
 // == K8s Client == //
 // ================ //
 
-// IsK8sLocal Function
-func IsK8sLocal() bool {
-	// local
-	k8sConfig := os.Getenv("HOME") + "/.kube"
-	if _, err := os.Stat(k8sConfig); err == nil {
-		return true
-	}
-
-	return false
-}
-
-// IsInK8sCluster Function
-func IsInK8sCluster() bool {
-	if _, ok := os.LookupEnv("KUBERNETES_PORT"); ok {
-		return true
-	}
-
-	return false
-}
-
-// IsK8sEnv Function
-func IsK8sEnv() bool {
-	// local
-	if IsK8sLocal() {
-		return true
-	}
-
-	// in-cluster
-	if IsInK8sCluster() {
-		return true
-	}
-
-	return false
-}
-
 // InitK8sClient Function
 func (kh *K8sHandler) InitK8sClient() bool {
-	if !IsK8sEnv() { // not Kubernetes
+	if !kl.IsK8sEnv() { // not Kubernetes
 		return false
 	}
 
 	if kh.K8sClient == nil {
-		if IsInK8sCluster() {
+		if kl.IsInK8sCluster() {
 			return kh.InitInclusterAPIClient()
 		}
 		return kh.InitLocalAPIClient()
@@ -132,16 +104,16 @@ func (kh *K8sHandler) InitK8sClient() bool {
 
 // InitLocalAPIClient Function
 func (kh *K8sHandler) InitLocalAPIClient() bool {
-	var kubeconfig *string
-	if home := os.Getenv("HOME"); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	kubeconfig := os.Getenv("KUBECONFIG")
+	if kubeconfig == "" {
+		kubeconfig = os.Getenv("HOME") + "/.kube/config"
+		if _, err := os.Stat(filepath.Clean(kubeconfig)); err != nil {
+			return false
+		}
 	}
-	flag.Parse()
 
 	// use the current context in kubeconfig
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return false
 	}
@@ -190,7 +162,7 @@ func (kh *K8sHandler) InitInclusterAPIClient() bool {
 func (kh *K8sHandler) DoRequest(cmd string, data interface{}, path string) ([]byte, error) {
 	URL := ""
 
-	if IsInK8sCluster() {
+	if kl.IsInK8sCluster() {
 		URL = "https://" + kh.K8sHost + ":" + kh.K8sPort
 	} else {
 		URL = "http://" + kh.K8sHost + ":" + kh.K8sPort
@@ -206,7 +178,7 @@ func (kh *K8sHandler) DoRequest(cmd string, data interface{}, path string) ([]by
 		return nil, err
 	}
 
-	if IsInK8sCluster() {
+	if kl.IsInK8sCluster() {
 		req.Header.Add("Content-Type", "application/json")
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", kh.K8sToken))
 	}
@@ -221,7 +193,10 @@ func (kh *K8sHandler) DoRequest(cmd string, data interface{}, path string) ([]by
 		return nil, err
 	}
 
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		kg.Err(err.Error())
+	}
+
 	return resBody, nil
 }
 
@@ -248,7 +223,7 @@ func containsElement(slice interface{}, element interface{}) bool {
 func (kh *K8sHandler) GetKubeArmorNodes() []string {
 	nodeIPs := []string{}
 
-	if !IsK8sEnv() { // not Kubernetes
+	if !kl.IsK8sEnv() { // not Kubernetes
 		return nodeIPs
 	}
 
