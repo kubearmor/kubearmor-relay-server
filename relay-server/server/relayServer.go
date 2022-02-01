@@ -322,7 +322,7 @@ func NewClient(server string) *LogClient {
 	// == //
 
 	msgIn := pb.RequestMessage{}
-	msgIn.Filter = ""
+	msgIn.Filter = "all"
 
 	msgStream, err := lc.client.WatchMessages(context.Background(), &msgIn)
 	if err != nil {
