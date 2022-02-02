@@ -323,7 +323,7 @@ func NewClient(server string) *LogClient {
 
 	alertStream, err := lc.client.WatchAlerts(context.Background(), &alertIn)
 	if err != nil {
-		kg.Warnf("Failed to call WatchAlerts (%s)\n", server)
+		kg.Warnf("Failed to call WatchAlerts (%s) err=%s\n", server, err.Error())
 		return nil
 	}
 	lc.alertStream = alertStream
@@ -335,7 +335,7 @@ func NewClient(server string) *LogClient {
 
 	logStream, err := lc.client.WatchLogs(context.Background(), &logIn)
 	if err != nil {
-		kg.Warnf("Failed to call WatchLogs (%s)\n", server)
+		kg.Warnf("Failed to call WatchLogs (%s)\n err=%s", server, err.Error())
 		return nil
 	}
 	lc.logStream = logStream
