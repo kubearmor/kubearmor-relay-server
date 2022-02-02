@@ -311,7 +311,7 @@ func NewClient(server string) *LogClient {
 
 	msgStream, err := lc.client.WatchMessages(context.Background(), &msgIn)
 	if err != nil {
-		kg.Warnf("Failed to call WatchMessages (%s)\n", server)
+		kg.Warnf("Failed to call WatchMessages (%s) err=%s\n", server, err.Error())
 		return nil
 	}
 	lc.msgStream = msgStream
@@ -323,7 +323,7 @@ func NewClient(server string) *LogClient {
 
 	alertStream, err := lc.client.WatchAlerts(context.Background(), &alertIn)
 	if err != nil {
-		kg.Warnf("Failed to call WatchAlerts (%s)\n", server)
+		kg.Warnf("Failed to call WatchAlerts (%s) err=%s\n", server, err.Error())
 		return nil
 	}
 	lc.alertStream = alertStream
@@ -335,7 +335,7 @@ func NewClient(server string) *LogClient {
 
 	logStream, err := lc.client.WatchLogs(context.Background(), &logIn)
 	if err != nil {
-		kg.Warnf("Failed to call WatchLogs (%s)\n", server)
+		kg.Warnf("Failed to call WatchLogs (%s)\n err=%s", server, err.Error())
 		return nil
 	}
 	lc.logStream = logStream
@@ -593,6 +593,8 @@ func connectToKubeArmor(nodeIP, port string) error {
 	// create connection info
 	server := nodeIP + ":" + port
 
+	defer delete(ClientList, nodeIP)
+
 	// create a client
 	client := NewClient(server)
 	if client == nil {
@@ -625,9 +627,6 @@ func connectToKubeArmor(nodeIP, port string) error {
 		kg.Warnf("Failed to destroy the client (%s)", server)
 	}
 	kg.Printf("Destroyed the client (%s)", server)
-
-	// removed the client
-	delete(ClientList, nodeIP)
 
 	return nil
 }
