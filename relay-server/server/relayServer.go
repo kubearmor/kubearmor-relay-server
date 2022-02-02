@@ -42,8 +42,8 @@ func init() {
 
 // MsgStruct Structure
 type MsgStruct struct {
-	Filter string
-	Queue  *kl.Queue
+	Filter    string
+	Broadcast chan *pb.Message
 }
 
 // MsgStructs Map
@@ -54,8 +54,8 @@ var MsgLock *sync.RWMutex
 
 // AlertStruct Structure
 type AlertStruct struct {
-	Filter string
-	Queue  *kl.Queue
+	Filter    string
+	Broadcast chan *pb.Alert
 }
 
 // AlertStructs Map
@@ -66,8 +66,8 @@ var AlertLock *sync.RWMutex
 
 // LogStruct Structure
 type LogStruct struct {
-	Filter string
-	Queue  *kl.Queue
+	Filter    string
+	Broadcast chan *pb.Log
 }
 
 // LogStructs Map
@@ -88,13 +88,13 @@ func (ls *LogService) HealthCheck(ctx context.Context, nonce *pb.NonceMessage) (
 }
 
 // addMsgStruct Function
-func (ls *LogService) addMsgStruct(uid string, filter string) {
+func (ls *LogService) addMsgStruct(uid string, conn chan *pb.Message, filter string) {
 	MsgLock.Lock()
 	defer MsgLock.Unlock()
 
 	msgStruct := MsgStruct{}
 	msgStruct.Filter = filter
-	msgStruct.Queue = kl.NewQueue()
+	msgStruct.Broadcast = conn
 
 	MsgStructs[uid] = msgStruct
 
@@ -114,30 +114,25 @@ func (ls *LogService) removeMsgStruct(uid string) {
 // WatchMessages Function
 func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_WatchMessagesServer) error {
 	uid := uuid.Must(uuid.NewRandom()).String()
-
-	ls.addMsgStruct(uid, req.Filter)
+	conn := make(chan *pb.Message)
+	ls.addMsgStruct(uid, conn, req.Filter)
 	defer ls.removeMsgStruct(uid)
 
 	for Running {
 		select {
 		case <-svr.Context().Done():
 			return nil
-		default:
-			if msgInt := MsgStructs[uid].Queue.Pop(); msgInt != nil {
-				msg := msgInt.(pb.Message)
-				if status, ok := status.FromError(svr.Send(&msg)); ok {
-					switch status.Code() {
-					case codes.OK:
-						// noop
-					case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-						kg.Warnf("Failed to send a message=[%+v] err=[%s]", msg, status.Err().Error())
-						return status.Err()
-					default:
-						return nil
-					}
+		case resp := <-conn:
+			if status, ok := status.FromError(svr.Send(resp)); ok {
+				switch status.Code() {
+				case codes.OK:
+					// noop
+				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
+					kg.Warnf("Failed to send a message=[%+v] err=[%s]", resp, status.Err().Error())
+					return status.Err()
+				default:
+					return nil
 				}
-			} else {
-				time.Sleep(time.Second * 1)
 			}
 		}
 	}
@@ -146,13 +141,13 @@ func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_Wa
 }
 
 // addAlertStruct Function
-func (ls *LogService) addAlertStruct(uid string, filter string) {
+func (ls *LogService) addAlertStruct(uid string, conn chan *pb.Alert, filter string) {
 	AlertLock.Lock()
 	defer AlertLock.Unlock()
 
 	alertStruct := AlertStruct{}
 	alertStruct.Filter = filter
-	alertStruct.Queue = kl.NewQueue()
+	alertStruct.Broadcast = conn
 
 	AlertStructs[uid] = alertStruct
 
@@ -176,30 +171,25 @@ func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_Watc
 	if req.Filter != "all" && req.Filter != "policy" {
 		return nil
 	}
-
-	ls.addAlertStruct(uid, req.Filter)
+	conn := make(chan *pb.Alert)
+	ls.addAlertStruct(uid, conn, req.Filter)
 	defer ls.removeAlertStruct(uid)
 
 	for Running {
 		select {
 		case <-svr.Context().Done():
 			return nil
-		default:
-			if alertInt := AlertStructs[uid].Queue.Pop(); alertInt != nil {
-				alert := alertInt.(pb.Alert)
-				if status, ok := status.FromError(svr.Send(&alert)); ok {
-					switch status.Code() {
-					case codes.OK:
-						// noop
-					case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-						kg.Warnf("Failed to send an alert=[%+v] err=[%s]", alert, status.Err().Error())
-						return status.Err()
-					default:
-						return nil
-					}
+		case resp := <-conn:
+			if status, ok := status.FromError(svr.Send(resp)); ok {
+				switch status.Code() {
+				case codes.OK:
+					// noop
+				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
+					kg.Warnf("Failed to send an alert=[%+v] err=[%s]", resp, status.Err().Error())
+					return status.Err()
+				default:
+					return nil
 				}
-			} else {
-				time.Sleep(time.Second * 1)
 			}
 		}
 	}
@@ -208,13 +198,13 @@ func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_Watc
 }
 
 // addLogStruct Function
-func (ls *LogService) addLogStruct(uid string, filter string) {
+func (ls *LogService) addLogStruct(uid string, conn chan *pb.Log, filter string) {
 	LogLock.Lock()
 	defer LogLock.Unlock()
 
 	logStruct := LogStruct{}
 	logStruct.Filter = filter
-	logStruct.Queue = kl.NewQueue()
+	logStruct.Broadcast = conn
 
 	LogStructs[uid] = logStruct
 
@@ -238,30 +228,25 @@ func (ls *LogService) WatchLogs(req *pb.RequestMessage, svr pb.LogService_WatchL
 	if req.Filter != "all" && req.Filter != "system" {
 		return nil
 	}
-
-	ls.addLogStruct(uid, req.Filter)
+	conn := make(chan *pb.Log)
+	ls.addLogStruct(uid, conn, req.Filter)
 	defer ls.removeLogStruct(uid)
 
 	for Running {
 		select {
 		case <-svr.Context().Done():
 			return nil
-		default:
-			if logInt := LogStructs[uid].Queue.Pop(); logInt != nil {
-				log := logInt.(pb.Log)
-				if status, ok := status.FromError(svr.Send(&log)); ok {
-					switch status.Code() {
-					case codes.OK:
-						// noop
-					case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-						kg.Warnf("Failed to send a log=[%+v] err=[%s]", log, status.Err().Error())
-						return status.Err()
-					default:
-						return nil
-					}
+		case resp := <-conn:
+			if status, ok := status.FromError(svr.Send(resp)); ok {
+				switch status.Code() {
+				case codes.OK:
+					// noop
+				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
+					kg.Warnf("Failed to send a log=[%+v] err=[%s]", resp, status.Err().Error())
+					return status.Err()
+				default:
+					return nil
 				}
-			} else {
-				time.Sleep(time.Second * 1)
 			}
 		}
 	}
@@ -408,7 +393,7 @@ func (lc *LogClient) WatchMessages() error {
 
 		MsgLock.Lock()
 		for uid := range MsgStructs {
-			MsgStructs[uid].Queue.Push(msg)
+			MsgStructs[uid].Broadcast <- (&msg)
 		}
 		MsgLock.Unlock()
 	}
@@ -442,7 +427,7 @@ func (lc *LogClient) WatchAlerts() error {
 
 		AlertLock.Lock()
 		for uid := range AlertStructs {
-			AlertStructs[uid].Queue.Push(alert)
+			AlertStructs[uid].Broadcast <- (&alert)
 		}
 		AlertLock.Unlock()
 	}
@@ -475,7 +460,7 @@ func (lc *LogClient) WatchLogs() error {
 
 		LogLock.Lock()
 		for uid := range LogStructs {
-			LogStructs[uid].Queue.Push(log)
+			LogStructs[uid].Broadcast <- (&log)
 		}
 		LogLock.Unlock()
 	}
