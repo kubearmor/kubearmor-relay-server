@@ -128,7 +128,7 @@ func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_Wa
 				case codes.OK:
 					// noop
 				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-					kg.Warnf("Failed to send a message=[%+v] err=[%s]", resp, status.Err().Error())
+					kg.Warnf("relay failed to send a message=[%+v] err=[%s]", resp, status.Err().Error())
 					return status.Err()
 				default:
 					return nil
@@ -185,7 +185,7 @@ func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_Watc
 				case codes.OK:
 					// noop
 				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-					kg.Warnf("Failed to send an alert=[%+v] err=[%s]", resp, status.Err().Error())
+					kg.Warnf("relay failed to send an alert=[%+v] err=[%s]", resp, status.Err().Error())
 					return status.Err()
 				default:
 					return nil
@@ -242,7 +242,7 @@ func (ls *LogService) WatchLogs(req *pb.RequestMessage, svr pb.LogService_WatchL
 				case codes.OK:
 					// noop
 				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-					kg.Warnf("Failed to send a log=[%+v] err=[%s]", resp, status.Err().Error())
+					kg.Warnf("relay failed to send a log=[%+v] err=[%s]", resp, status.Err().Error())
 					return status.Err()
 				default:
 					return nil
@@ -287,6 +287,8 @@ type LogClient struct {
 
 // NewClient Function
 func NewClient(server string) *LogClient {
+	var err error
+
 	lc := &LogClient{}
 
 	lc.Running = true
@@ -295,12 +297,19 @@ func NewClient(server string) *LogClient {
 
 	lc.server = server
 
-	conn, err := grpc.Dial(lc.server, grpc.WithInsecure())
+	lc.conn, err = grpc.Dial(lc.server, grpc.WithInsecure())
 	if err != nil {
-		kg.Warnf("Failed to connect to KubeArmor's gRPC service (%s)\n", server)
+		kg.Warnf("Failed to connect to KubeArmor's gRPC service (%s)", server)
 		return nil
 	}
-	lc.conn = conn
+	defer func() {
+		if err != nil {
+			err = lc.DestroyClient()
+			if err != nil {
+				kg.Warnf("DestroyClient() failed err=%s", err.Error())
+			}
+		}
+	}()
 
 	lc.client = pb.NewLogServiceClient(lc.conn)
 
@@ -309,36 +318,33 @@ func NewClient(server string) *LogClient {
 	msgIn := pb.RequestMessage{}
 	msgIn.Filter = "all"
 
-	msgStream, err := lc.client.WatchMessages(context.Background(), &msgIn)
+	lc.msgStream, err = lc.client.WatchMessages(context.Background(), &msgIn)
 	if err != nil {
 		kg.Warnf("Failed to call WatchMessages (%s) err=%s\n", server, err.Error())
 		return nil
 	}
-	lc.msgStream = msgStream
 
 	// == //
 
 	alertIn := pb.RequestMessage{}
 	alertIn.Filter = "policy"
 
-	alertStream, err := lc.client.WatchAlerts(context.Background(), &alertIn)
+	lc.alertStream, err = lc.client.WatchAlerts(context.Background(), &alertIn)
 	if err != nil {
 		kg.Warnf("Failed to call WatchAlerts (%s) err=%s\n", server, err.Error())
 		return nil
 	}
-	lc.alertStream = alertStream
 
 	// == //
 
 	logIn := pb.RequestMessage{}
 	logIn.Filter = "system"
 
-	logStream, err := lc.client.WatchLogs(context.Background(), &logIn)
+	lc.logStream, err = lc.client.WatchLogs(context.Background(), &logIn)
 	if err != nil {
 		kg.Warnf("Failed to call WatchLogs (%s)\n err=%s", server, err.Error())
 		return nil
 	}
-	lc.logStream = logStream
 
 	// == //
 
@@ -391,11 +397,9 @@ func (lc *LogClient) WatchMessages() error {
 			continue
 		}
 
-		MsgLock.Lock()
 		for uid := range MsgStructs {
 			MsgStructs[uid].Broadcast <- (&msg)
 		}
-		MsgLock.Unlock()
 	}
 
 	kg.Print("Stopped watching messages from " + lc.server)
@@ -425,11 +429,9 @@ func (lc *LogClient) WatchAlerts() error {
 			continue
 		}
 
-		AlertLock.Lock()
 		for uid := range AlertStructs {
 			AlertStructs[uid].Broadcast <- (&alert)
 		}
-		AlertLock.Unlock()
 	}
 
 	kg.Print("Stopped watching alerts from " + lc.server)
@@ -458,11 +460,9 @@ func (lc *LogClient) WatchLogs() error {
 			kg.Warnf("Failed to clone a log (%v)", *res)
 		}
 
-		LogLock.Lock()
 		for uid := range LogStructs {
 			LogStructs[uid].Broadcast <- (&log)
 		}
-		LogLock.Unlock()
 	}
 
 	kg.Print("Stopped watching logs from " + lc.server)
