@@ -287,6 +287,8 @@ type LogClient struct {
 
 // NewClient Function
 func NewClient(server string) *LogClient {
+	var err error
+
 	lc := &LogClient{}
 
 	lc.Running = true
@@ -295,12 +297,19 @@ func NewClient(server string) *LogClient {
 
 	lc.server = server
 
-	conn, err := grpc.Dial(lc.server, grpc.WithInsecure())
+	lc.conn, err = grpc.Dial(lc.server, grpc.WithInsecure())
 	if err != nil {
-		kg.Warnf("Failed to connect to KubeArmor's gRPC service (%s)\n", server)
+		kg.Warnf("Failed to connect to KubeArmor's gRPC service (%s)", server)
 		return nil
 	}
-	lc.conn = conn
+	defer func() {
+		if err != nil {
+			err = lc.DestroyClient()
+			if err != nil {
+				kg.Warnf("DestroyClient() failed err=%s", err.Error())
+			}
+		}
+	}()
 
 	lc.client = pb.NewLogServiceClient(lc.conn)
 
@@ -309,36 +318,33 @@ func NewClient(server string) *LogClient {
 	msgIn := pb.RequestMessage{}
 	msgIn.Filter = "all"
 
-	msgStream, err := lc.client.WatchMessages(context.Background(), &msgIn)
+	lc.msgStream, err = lc.client.WatchMessages(context.Background(), &msgIn)
 	if err != nil {
 		kg.Warnf("Failed to call WatchMessages (%s) err=%s\n", server, err.Error())
 		return nil
 	}
-	lc.msgStream = msgStream
 
 	// == //
 
 	alertIn := pb.RequestMessage{}
 	alertIn.Filter = "policy"
 
-	alertStream, err := lc.client.WatchAlerts(context.Background(), &alertIn)
+	lc.alertStream, err = lc.client.WatchAlerts(context.Background(), &alertIn)
 	if err != nil {
 		kg.Warnf("Failed to call WatchAlerts (%s) err=%s\n", server, err.Error())
 		return nil
 	}
-	lc.alertStream = alertStream
 
 	// == //
 
 	logIn := pb.RequestMessage{}
 	logIn.Filter = "system"
 
-	logStream, err := lc.client.WatchLogs(context.Background(), &logIn)
+	lc.logStream, err = lc.client.WatchLogs(context.Background(), &logIn)
 	if err != nil {
 		kg.Warnf("Failed to call WatchLogs (%s)\n err=%s", server, err.Error())
 		return nil
 	}
-	lc.logStream = logStream
 
 	// == //
 
