@@ -128,7 +128,7 @@ func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_Wa
 				case codes.OK:
 					// noop
 				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-					kg.Warnf("Failed to send a message=[%+v] err=[%s]", resp, status.Err().Error())
+					kg.Warnf("relay failed to send a message=[%+v] err=[%s]", resp, status.Err().Error())
 					return status.Err()
 				default:
 					return nil
@@ -185,7 +185,7 @@ func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_Watc
 				case codes.OK:
 					// noop
 				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-					kg.Warnf("Failed to send an alert=[%+v] err=[%s]", resp, status.Err().Error())
+					kg.Warnf("relay failed to send an alert=[%+v] err=[%s]", resp, status.Err().Error())
 					return status.Err()
 				default:
 					return nil
@@ -242,7 +242,7 @@ func (ls *LogService) WatchLogs(req *pb.RequestMessage, svr pb.LogService_WatchL
 				case codes.OK:
 					// noop
 				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-					kg.Warnf("Failed to send a log=[%+v] err=[%s]", resp, status.Err().Error())
+					kg.Warnf("relay failed to send a log=[%+v] err=[%s]", resp, status.Err().Error())
 					return status.Err()
 				default:
 					return nil
@@ -391,11 +391,9 @@ func (lc *LogClient) WatchMessages() error {
 			continue
 		}
 
-		MsgLock.Lock()
 		for uid := range MsgStructs {
 			MsgStructs[uid].Broadcast <- (&msg)
 		}
-		MsgLock.Unlock()
 	}
 
 	kg.Print("Stopped watching messages from " + lc.server)
@@ -425,11 +423,9 @@ func (lc *LogClient) WatchAlerts() error {
 			continue
 		}
 
-		AlertLock.Lock()
 		for uid := range AlertStructs {
 			AlertStructs[uid].Broadcast <- (&alert)
 		}
-		AlertLock.Unlock()
 	}
 
 	kg.Print("Stopped watching alerts from " + lc.server)
@@ -458,11 +454,9 @@ func (lc *LogClient) WatchLogs() error {
 			kg.Warnf("Failed to clone a log (%v)", *res)
 		}
 
-		LogLock.Lock()
 		for uid := range LogStructs {
 			LogStructs[uid].Broadcast <- (&log)
 		}
-		LogLock.Unlock()
 	}
 
 	kg.Print("Stopped watching logs from " + lc.server)
