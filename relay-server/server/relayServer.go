@@ -620,6 +620,7 @@ func connectToKubeArmor(nodeIP, port string) error {
 	go client.WatchLogs()
 	kg.Print("Started to watch logs from " + server)
 
+	time.Sleep(time.Second * 1)
 	// wait for other routines
 	client.WgServer.Wait()
 
