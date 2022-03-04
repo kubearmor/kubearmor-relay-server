@@ -238,8 +238,11 @@ func (kh *K8sHandler) GetKubeArmorNodes() []string {
 		} else if val != "kubearmor" {
 			continue
 		}
+		if pod.Status.HostIP == "" {
+			kg.Printf("pod.Status=%+v", pod.Status)
+		}
 
-		if !containsElement(nodeIPs, pod.Status.HostIP) {
+		if pod.Status.HostIP != "" && !containsElement(nodeIPs, pod.Status.HostIP) {
 			nodeIPs = append(nodeIPs, pod.Status.HostIP)
 		}
 	}
