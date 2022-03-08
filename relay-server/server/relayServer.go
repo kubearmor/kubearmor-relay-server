@@ -114,7 +114,7 @@ func (ls *LogService) removeMsgStruct(uid string) {
 // WatchMessages Function
 func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_WatchMessagesServer) error {
 	uid := uuid.Must(uuid.NewRandom()).String()
-	conn := make(chan *pb.Message)
+	conn := make(chan *pb.Message, 1)
 	ls.addMsgStruct(uid, conn, req.Filter)
 	defer ls.removeMsgStruct(uid)
 
@@ -171,7 +171,7 @@ func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_Watc
 	if req.Filter != "all" && req.Filter != "policy" {
 		return nil
 	}
-	conn := make(chan *pb.Alert)
+	conn := make(chan *pb.Alert, 1)
 	ls.addAlertStruct(uid, conn, req.Filter)
 	defer ls.removeAlertStruct(uid)
 
@@ -228,7 +228,7 @@ func (ls *LogService) WatchLogs(req *pb.RequestMessage, svr pb.LogService_WatchL
 	if req.Filter != "all" && req.Filter != "system" {
 		return nil
 	}
-	conn := make(chan *pb.Log)
+	conn := make(chan *pb.Log, 1)
 	ls.addLogStruct(uid, conn, req.Filter)
 	defer ls.removeLogStruct(uid)
 
@@ -398,7 +398,9 @@ func (lc *LogClient) WatchMessages() error {
 		}
 
 		for uid := range MsgStructs {
-			MsgStructs[uid].Broadcast <- (&msg)
+			go func(ch chan *pb.Message) {
+				ch <- (&msg)
+			}(MsgStructs[uid].Broadcast)
 		}
 	}
 
@@ -430,7 +432,9 @@ func (lc *LogClient) WatchAlerts() error {
 		}
 
 		for uid := range AlertStructs {
-			AlertStructs[uid].Broadcast <- (&alert)
+			go func(ch chan *pb.Alert) {
+				ch <- (&alert)
+			}(AlertStructs[uid].Broadcast)
 		}
 	}
 
@@ -461,7 +465,9 @@ func (lc *LogClient) WatchLogs() error {
 		}
 
 		for uid := range LogStructs {
-			LogStructs[uid].Broadcast <- (&log)
+			go func(ch chan *pb.Log) {
+				ch <- (&log)
+			}(LogStructs[uid].Broadcast)
 		}
 	}
 
