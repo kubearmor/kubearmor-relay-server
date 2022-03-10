@@ -115,6 +115,7 @@ func (ls *LogService) removeMsgStruct(uid string) {
 func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_WatchMessagesServer) error {
 	uid := uuid.Must(uuid.NewRandom()).String()
 	conn := make(chan *pb.Message, 1)
+	defer close(conn)
 	ls.addMsgStruct(uid, conn, req.Filter)
 	defer ls.removeMsgStruct(uid)
 
@@ -172,6 +173,7 @@ func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_Watc
 		return nil
 	}
 	conn := make(chan *pb.Alert, 1)
+	defer close(conn)
 	ls.addAlertStruct(uid, conn, req.Filter)
 	defer ls.removeAlertStruct(uid)
 
@@ -229,6 +231,7 @@ func (ls *LogService) WatchLogs(req *pb.RequestMessage, svr pb.LogService_WatchL
 		return nil
 	}
 	conn := make(chan *pb.Log, 1)
+	defer close(conn)
 	ls.addLogStruct(uid, conn, req.Filter)
 	defer ls.removeLogStruct(uid)
 
@@ -397,11 +400,14 @@ func (lc *LogClient) WatchMessages() error {
 			continue
 		}
 
+		MsgLock.RLock()
 		for uid := range MsgStructs {
-			go func(ch chan *pb.Message) {
-				ch <- (&msg)
-			}(MsgStructs[uid].Broadcast)
+			select {
+			case MsgStructs[uid].Broadcast <- (&msg):
+			default:
+			}
 		}
+		MsgLock.RUnlock()
 	}
 
 	kg.Print("Stopped watching messages from " + lc.server)
@@ -431,11 +437,14 @@ func (lc *LogClient) WatchAlerts() error {
 			continue
 		}
 
+		AlertLock.RLock()
 		for uid := range AlertStructs {
-			go func(ch chan *pb.Alert) {
-				ch <- (&alert)
-			}(AlertStructs[uid].Broadcast)
+			select {
+			case AlertStructs[uid].Broadcast <- (&alert):
+			default:
+			}
 		}
+		AlertLock.RUnlock()
 	}
 
 	kg.Print("Stopped watching alerts from " + lc.server)
@@ -464,11 +473,14 @@ func (lc *LogClient) WatchLogs() error {
 			kg.Warnf("Failed to clone a log (%v)", *res)
 		}
 
+		LogLock.RLock()
 		for uid := range LogStructs {
-			go func(ch chan *pb.Log) {
-				ch <- (&log)
-			}(LogStructs[uid].Broadcast)
+			select {
+			case LogStructs[uid].Broadcast <- (&log):
+			default:
+			}
 		}
+		LogLock.RUnlock()
 	}
 
 	kg.Print("Stopped watching logs from " + lc.server)
