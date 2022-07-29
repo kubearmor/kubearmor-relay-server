@@ -4,7 +4,6 @@
 package common
 
 import (
-	"container/list"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -65,32 +64,4 @@ func IsK8sEnv() bool {
 	}
 
 	return false
-}
-
-// =========== //
-// == Queue == //
-// =========== //
-
-// Queue Structure
-type Queue struct {
-	v *list.List
-}
-
-// NewQueue Function
-func NewQueue() *Queue {
-	return &Queue{list.New()}
-}
-
-// Push Function
-func (q *Queue) Push(val interface{}) {
-	q.v.PushBack(val)
-}
-
-// Pop Function
-func (q *Queue) Pop() interface{} {
-	front := q.v.Front()
-	if front != nil {
-		return q.v.Remove(front)
-	}
-	return nil
 }

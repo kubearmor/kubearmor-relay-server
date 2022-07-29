@@ -5,6 +5,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"math/rand"
 	"net"
 	"sync"
@@ -400,6 +402,9 @@ func (lc *LogClient) WatchMessages() error {
 			continue
 		}
 
+		tel, _ := json.Marshal(msg)
+		fmt.Printf("%s\n", string(tel))
+
 		MsgLock.RLock()
 		for uid := range MsgStructs {
 			select {
@@ -437,6 +442,9 @@ func (lc *LogClient) WatchAlerts() error {
 			continue
 		}
 
+		tel, _ := json.Marshal(alert)
+		fmt.Printf("%s\n", string(tel))
+
 		AlertLock.RLock()
 		for uid := range AlertStructs {
 			select {
@@ -472,6 +480,9 @@ func (lc *LogClient) WatchLogs() error {
 		if err := kl.Clone(*res, &log); err != nil {
 			kg.Warnf("Failed to clone a log (%v)", *res)
 		}
+
+		tel, _ := json.Marshal(log)
+		fmt.Printf("%s\n", string(tel))
 
 		LogLock.RLock()
 		for uid := range LogStructs {
