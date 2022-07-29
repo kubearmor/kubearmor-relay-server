@@ -4,7 +4,6 @@
 package log
 
 import (
-	"encoding/json"
 	"time"
 
 	"go.uber.org/zap"
@@ -30,35 +29,8 @@ func customTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 
 // initLogger Function
 func initLogger() {
-	defaultConfig := []byte(`{
-		"level": "debug",
-		"encoding": "console",
-		"outputPaths": ["stdout"],
-		"encoderConfig": {
-			"messageKey": "message",
-			"levelKey": "level",
-			"nameKey": "logger",
-			"timeKey": "time",
-			"callerKey": "logger",
-			"stacktraceKey": "stacktrace",
-			"callstackKey": "callstack",
-			"errorKey": "error",
-			"levelEncoder": "capitalColor",
-			"durationEncoder": "second",
-			"sampling": {
-				"initial": "3",
-				"thereafter": "10"
-			}
-		}
-	}`)
-
-	config := zap.Config{}
-	if err := json.Unmarshal(defaultConfig, &config); err != nil {
-		panic(err)
-	}
-
+	config := zap.NewProductionConfig()
 	config.EncoderConfig.EncodeTime = customTimeEncoder
-	config.Level.SetLevel(zap.DebugLevel) // if we need to set log level
 
 	logger, err := config.Build()
 	if err != nil {
