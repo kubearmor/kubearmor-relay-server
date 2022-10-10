@@ -14,9 +14,9 @@ KubeArmor emits following types of events:
 3. **Message**: Internal Kubearmor daemon messages
 
 There are two approaches that one can take to stream the kubearmor events.
-1. Using kubearmor-relay stdout: This is the easiest way i.e. if the SIEM tool connects to the k8s pod logging interface then all the kubearmor events (across all nodes) are available at the kubearmor-relay stdout. [Fluentd](https://docs.fluentd.org/v/0.12/articles/kubernetes-fluentd)/[SentinelOne](https://www.sentinelone.com/blog/get-started-quickly-with-kubernetes-logging/) does support this mode wherein .
-2. Creating an adapter for the SIEM tool. Kubearmor-relay events could be accessed using its GRPC server ([ref code](https://github.com/kubearmor/kubearmor-client/tree/main/log)) and then the events could be streamed to the SIEM tool (splunk/elk/sentinelone ...).
+1. Using kubearmor-relay stdout: This is the easiest way i.e. if the SIEM tool connects to the k8s pod logging interface then all the kubearmor events (across all nodes) are available at the kubearmor-relay stdout. [Fluentd](https://docs.fluentd.org/v/0.12/articles/kubernetes-fluentd)/[Microsoft Sentinel](https://techcommunity.microsoft.com/t5/microsoft-sentinel-blog/monitoring-azure-kubernetes-service-aks-with-microsoft-sentinel/ba-p/1583204) does support this mode wherein the `stdout` of the pod can be streamed to the SIEM tool.
+2. Creating an adapter for the SIEM tool. Kubearmor-relay events could be accessed using its GRPC server ([ref code](https://github.com/kubearmor/kubearmor-client/tree/main/log)) and then the events could be streamed to the SIEM tool (splunk/elk/MS-sentinel ...).
 
 <img src="docs/kubearmor-event-stream-arch.png" width="512">
 
-> SentinelOne is used as an example in this figure
+> Microsoft Sentinel is used as an example in this figure
