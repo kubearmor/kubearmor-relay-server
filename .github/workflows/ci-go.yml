@@ -44,7 +44,6 @@ jobs:
 
       - name: Run Gosec Security Scanner
         run: |
-          go get -u github.com/securego/gosec/v2/cmd/gosec
-          go get .
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
           gosec -exclude=G204,G304,G107 -exclude-dir=protobuf/ ./...  
         working-directory: relay-server
