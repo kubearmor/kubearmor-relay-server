@@ -10,10 +10,10 @@ replace (
 )
 
 require (
-	github.com/google/uuid v1.1.2
-	github.com/kubearmor/KubeArmor/protobuf v0.0.0-20220504043216-6451e04be58b
-	go.uber.org/zap v1.19.0
-	google.golang.org/grpc v1.46.0
-	k8s.io/apimachinery v0.21.1
-	k8s.io/client-go v0.21.1
+	github.com/google/uuid v1.3.0
+	github.com/kubearmor/KubeArmor/protobuf v0.0.0-20221117040949-d3559c7ffd74
+	go.uber.org/zap v1.23.0
+	google.golang.org/grpc v1.50.1
+	k8s.io/apimachinery v0.25.4
+	k8s.io/client-go v0.25.4
 )
