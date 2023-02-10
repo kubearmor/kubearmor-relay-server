@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"math/rand"
 	"net"
 	"sync"
@@ -510,6 +511,24 @@ func (lc *LogClient) DestroyClient() error {
 	return nil
 }
 
+type HealthChecker struct{}
+
+func (s *HealthChecker) Check(ctx context.Context, req *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
+
+	kg.Print("Serving the Check request for health check")
+
+	return &grpc_health_v1.HealthCheckResponse{
+		Status: grpc_health_v1.HealthCheckResponse_SERVING,
+	}, nil
+}
+
+func (s *HealthChecker) Watch(req *grpc_health_v1.HealthCheckRequest, server grpc_health_v1.Health_WatchServer) error {
+	kg.Print("Serving the Watch request for health check")
+	return server.Send(&grpc_health_v1.HealthCheckResponse{
+		Status: grpc_health_v1.HealthCheckResponse_SERVING,
+	})
+}
+
 // ================== //
 // == Relay Server == //
 // ================== //
@@ -523,7 +542,7 @@ type RelayServer struct {
 	Listener net.Listener
 
 	// log server
-	LogServer *grpc.Server
+	Server *grpc.Server
 
 	// wait group
 	WgServer sync.WaitGroup
@@ -553,11 +572,15 @@ func NewRelayServer(port string) *RelayServer {
 	}
 
 	// create a log server
-	rs.LogServer = grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
+	rs.Server = grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
 	// register a log service
 	logService := &LogService{}
-	pb.RegisterLogServiceServer(rs.LogServer, logService)
+	pb.RegisterLogServiceServer(rs.Server, logService)
+
+	//register health checker
+	healthService := &HealthChecker{}
+	grpc_health_v1.RegisterHealthServer(rs.Server, healthService)
 
 	// initialize msg structs
 	MsgStructs = make(map[string]MsgStruct)
@@ -609,7 +632,7 @@ func (rs *RelayServer) ServeLogFeeds() {
 	defer rs.WgServer.Done()
 
 	// feed logs
-	if err := rs.LogServer.Serve(rs.Listener); err != nil {
+	if err := rs.Server.Serve(rs.Listener); err != nil {
 		kg.Print("Terminated the gRPC service")
 	}
 }
