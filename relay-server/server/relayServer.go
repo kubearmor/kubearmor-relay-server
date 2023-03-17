@@ -33,9 +33,14 @@ var Running bool
 // ClientList Map
 var ClientList map[string]int
 
+// ClientList Lock
+var ClientListLock *sync.RWMutex
+
 func init() {
 	Running = true
 	ClientList = map[string]int{}
+	ClientListLock = &sync.RWMutex{}
+
 }
 
 // ========== //
@@ -619,6 +624,10 @@ func (rs *RelayServer) ServeLogFeeds() {
 // =============== //
 
 func connectToKubeArmor(nodeIP, port string) error {
+
+	ClientListLock.Lock()
+	defer ClientListLock.Unlock()
+
 	// create connection info
 	server := nodeIP + ":" + port
 
@@ -663,12 +672,14 @@ func connectToKubeArmor(nodeIP, port string) error {
 
 // GetFeedsFromNodes Function
 func (rs *RelayServer) GetFeedsFromNodes() {
+
 	rs.WgServer.Add(1)
 	defer rs.WgServer.Done()
 
 	if K8s.InitK8sClient() {
 		kg.Print("Initialized the Kubernetes client")
 
+		ClientListLock.RLock()
 		for Running {
 			newNodes := K8s.GetKubeArmorNodes()
 
@@ -681,5 +692,7 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 
 			time.Sleep(time.Second * 1)
 		}
+		ClientListLock.RUnlock()
+
 	}
 }
