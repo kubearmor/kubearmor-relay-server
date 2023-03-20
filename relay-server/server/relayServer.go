@@ -121,7 +121,7 @@ func (ls *LogService) removeMsgStruct(uid string) {
 // WatchMessages Function
 func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_WatchMessagesServer) error {
 	uid := uuid.Must(uuid.NewRandom()).String()
-	conn := make(chan *pb.Message, 1)
+	conn := make(chan *pb.Message, 1000)
 	defer close(conn)
 	ls.addMsgStruct(uid, conn, req.Filter)
 	defer ls.removeMsgStruct(uid)
@@ -179,7 +179,7 @@ func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_Watc
 	if req.Filter != "all" && req.Filter != "policy" {
 		return nil
 	}
-	conn := make(chan *pb.Alert, 1)
+	conn := make(chan *pb.Alert, 1000)
 	defer close(conn)
 	ls.addAlertStruct(uid, conn, req.Filter)
 	defer ls.removeAlertStruct(uid)
@@ -237,7 +237,7 @@ func (ls *LogService) WatchLogs(req *pb.RequestMessage, svr pb.LogService_WatchL
 	if req.Filter != "all" && req.Filter != "system" {
 		return nil
 	}
-	conn := make(chan *pb.Log, 1)
+	conn := make(chan *pb.Log, 1000)
 	defer close(conn)
 	ls.addLogStruct(uid, conn, req.Filter)
 	defer ls.removeLogStruct(uid)
