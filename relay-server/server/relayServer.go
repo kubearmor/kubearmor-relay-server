@@ -621,16 +621,15 @@ func (rs *RelayServer) ServeLogFeeds() {
 
 // Remove nodeIP from ClientList
 
-func DeleteClientEntry(nodeIP, port string) {
+func DeleteClientEntry(nodeIP string) {
 	ClientListLock.Lock()
 	defer ClientListLock.Unlock()
+
 	_, exists := ClientList[nodeIP]
 
 	if exists {
-
 		delete(ClientList, nodeIP)
 	}
-
 }
 
 // =============== //
@@ -642,7 +641,7 @@ func connectToKubeArmor(nodeIP, port string) error {
 	// create connection info
 	server := nodeIP + ":" + port
 
-	defer DeleteClientEntry(nodeIP, port)
+	defer DeleteClientEntry(nodeIP)
 
 	// create a client
 	client := NewClient(server)
