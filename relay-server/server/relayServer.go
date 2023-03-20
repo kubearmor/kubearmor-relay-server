@@ -619,19 +619,30 @@ func (rs *RelayServer) ServeLogFeeds() {
 	}
 }
 
+// Remove nodeIP from ClientList
+
+func DeleteClientEntry(nodeIP, port string) {
+	ClientListLock.Lock()
+	defer ClientListLock.Unlock()
+	_, exists := ClientList[nodeIP]
+
+	if exists {
+
+		delete(ClientList, nodeIP)
+	}
+
+}
+
 // =============== //
 // == KubeArmor == //
 // =============== //
 
 func connectToKubeArmor(nodeIP, port string) error {
 
-	ClientListLock.Lock()
-	defer ClientListLock.Unlock()
-
 	// create connection info
 	server := nodeIP + ":" + port
 
-	defer delete(ClientList, nodeIP)
+	defer DeleteClientEntry(nodeIP, port)
 
 	// create a client
 	client := NewClient(server)
@@ -679,7 +690,6 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 	if K8s.InitK8sClient() {
 		kg.Print("Initialized the Kubernetes client")
 
-		ClientListLock.RLock()
 		for Running {
 			newNodes := K8s.GetKubeArmorNodes()
 
@@ -692,7 +702,6 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 
 			time.Sleep(time.Second * 1)
 		}
-		ClientListLock.RUnlock()
 
 	}
 }
