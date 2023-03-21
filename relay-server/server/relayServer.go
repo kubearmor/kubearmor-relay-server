@@ -387,7 +387,7 @@ func (lc *LogClient) DoHealthCheck() bool {
 
 // WatchMessages Function
 func (lc *LogClient) WatchMessages() error {
-	lc.WgServer.Add(1)
+
 	defer lc.WgServer.Done()
 
 	var err error
@@ -427,7 +427,7 @@ func (lc *LogClient) WatchMessages() error {
 
 // WatchAlerts Function
 func (lc *LogClient) WatchAlerts() error {
-	lc.WgServer.Add(1)
+
 	defer lc.WgServer.Done()
 
 	var err error
@@ -467,7 +467,7 @@ func (lc *LogClient) WatchAlerts() error {
 
 // WatchLogs Function
 func (lc *LogClient) WatchLogs() error {
-	lc.WgServer.Add(1)
+
 	defer lc.WgServer.Done()
 
 	var err error
@@ -656,14 +656,17 @@ func connectToKubeArmor(nodeIP, port string) error {
 	}
 	kg.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", server)
 
+	client.WgServer.Add(1)
 	// watch messages
 	go client.WatchMessages()
 	kg.Print("Started to watch messages from " + server)
 
+	client.WgServer.Add(1)
 	// watch alerts
 	go client.WatchAlerts()
 	kg.Print("Started to watch alerts from " + server)
 
+	client.WgServer.Add(1)
 	// watch logs
 	go client.WatchLogs()
 	kg.Print("Started to watch logs from " + server)
