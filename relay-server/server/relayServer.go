@@ -33,13 +33,13 @@ var Running bool
 // ClientList Map
 var ClientList map[string]int
 
-// ClientList Lock
-var ClientListLock *sync.RWMutex
+// ClientListLock Lock
+var ClientListLock *sync.Mutex
 
 func init() {
 	Running = true
 	ClientList = map[string]int{}
-	ClientListLock = &sync.RWMutex{}
+	ClientListLock = &sync.Mutex{}
 
 }
 
@@ -696,10 +696,12 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 			newNodes := K8s.GetKubeArmorNodes()
 
 			for _, nodeIP := range newNodes {
+				ClientListLock.Lock()
 				if _, ok := ClientList[nodeIP]; !ok {
 					ClientList[nodeIP] = 1
 					go connectToKubeArmor(nodeIP, rs.Port)
 				}
+				ClientListLock.Unlock()
 			}
 
 			time.Sleep(time.Second * 1)
