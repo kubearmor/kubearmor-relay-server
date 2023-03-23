@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-go@v2
         with:
-          go-version: v1.16
+          go-version: v1.20.x
 
       - name: Check gofmt
         run: gofmt -s -d $(find . -type f -name '*.go' -print)
@@ -40,7 +40,7 @@ jobs:
 
       - uses: actions/setup-go@v2
         with:
-          go-version: v1.16
+          go-version: v1.20.x
 
       - name: Run Gosec Security Scanner
         run: |
