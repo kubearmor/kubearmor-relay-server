@@ -33,9 +33,14 @@ var Running bool
 // ClientList Map
 var ClientList map[string]int
 
+// ClientListLock Lock
+var ClientListLock *sync.Mutex
+
 func init() {
 	Running = true
 	ClientList = map[string]int{}
+	ClientListLock = &sync.Mutex{}
+
 }
 
 // ========== //
@@ -382,7 +387,7 @@ func (lc *LogClient) DoHealthCheck() bool {
 
 // WatchMessages Function
 func (lc *LogClient) WatchMessages() error {
-	lc.WgServer.Add(1)
+
 	defer lc.WgServer.Done()
 
 	var err error
@@ -422,7 +427,7 @@ func (lc *LogClient) WatchMessages() error {
 
 // WatchAlerts Function
 func (lc *LogClient) WatchAlerts() error {
-	lc.WgServer.Add(1)
+
 	defer lc.WgServer.Done()
 
 	var err error
@@ -462,7 +467,7 @@ func (lc *LogClient) WatchAlerts() error {
 
 // WatchLogs Function
 func (lc *LogClient) WatchLogs() error {
-	lc.WgServer.Add(1)
+
 	defer lc.WgServer.Done()
 
 	var err error
@@ -614,15 +619,29 @@ func (rs *RelayServer) ServeLogFeeds() {
 	}
 }
 
+// Remove nodeIP from ClientList
+
+func DeleteClientEntry(nodeIP string) {
+	ClientListLock.Lock()
+	defer ClientListLock.Unlock()
+
+	_, exists := ClientList[nodeIP]
+
+	if exists {
+		delete(ClientList, nodeIP)
+	}
+}
+
 // =============== //
 // == KubeArmor == //
 // =============== //
 
 func connectToKubeArmor(nodeIP, port string) error {
+
 	// create connection info
 	server := nodeIP + ":" + port
 
-	defer delete(ClientList, nodeIP)
+	defer DeleteClientEntry(nodeIP)
 
 	// create a client
 	client := NewClient(server)
@@ -637,14 +656,17 @@ func connectToKubeArmor(nodeIP, port string) error {
 	}
 	kg.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", server)
 
+	client.WgServer.Add(1)
 	// watch messages
 	go client.WatchMessages()
 	kg.Print("Started to watch messages from " + server)
 
+	client.WgServer.Add(1)
 	// watch alerts
 	go client.WatchAlerts()
 	kg.Print("Started to watch alerts from " + server)
 
+	client.WgServer.Add(1)
 	// watch logs
 	go client.WatchLogs()
 	kg.Print("Started to watch logs from " + server)
@@ -663,6 +685,7 @@ func connectToKubeArmor(nodeIP, port string) error {
 
 // GetFeedsFromNodes Function
 func (rs *RelayServer) GetFeedsFromNodes() {
+
 	rs.WgServer.Add(1)
 	defer rs.WgServer.Done()
 
@@ -673,13 +696,16 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 			newNodes := K8s.GetKubeArmorNodes()
 
 			for _, nodeIP := range newNodes {
+				ClientListLock.Lock()
 				if _, ok := ClientList[nodeIP]; !ok {
 					ClientList[nodeIP] = 1
 					go connectToKubeArmor(nodeIP, rs.Port)
 				}
+				ClientListLock.Unlock()
 			}
 
 			time.Sleep(time.Second * 1)
 		}
+
 	}
 }
