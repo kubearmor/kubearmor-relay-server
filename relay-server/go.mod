@@ -10,6 +10,9 @@ replace (
 )
 
 require (
+	github.com/cenkalti/backoff/v4 v4.2.1
+	github.com/dustin/go-humanize v1.0.1
+	github.com/elastic/go-elasticsearch/v7 v7.17.7
 	github.com/google/uuid v1.1.2
 	github.com/kubearmor/KubeArmor/protobuf v0.0.0-20221117040949-d3559c7ffd74
 	go.uber.org/zap v1.19.0

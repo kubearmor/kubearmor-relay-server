@@ -5,6 +5,7 @@ package main
 
 import (
 	"flag"
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/elastisearch"
 	"os"
 	"os/signal"
 	"syscall"
@@ -50,6 +51,12 @@ func main() {
 	gRPCPortPtr := flag.String("gRPCPort", "32767", "gRPC port")
 	flag.Parse()
 
+	//get env
+
+	enableEsDashboards := os.Getenv("ENABLE_DASHBOARDS")
+	esUrl := os.Getenv("ES_URL")
+	endPoint := os.Getenv("KUBEARMOR_SERVICE")
+
 	// == //
 
 	// create a relay server
@@ -67,6 +74,20 @@ func main() {
 	// get log feeds (from KubeArmor)
 	go relayServer.GetFeedsFromNodes()
 	kg.Print("Started to receive log feeds from each node")
+
+	// == //
+
+	//check and start an elastisearch client
+	if enableEsDashboards == "true" {
+		esCl, err := elastisearch.NewElasticsearchClient(esUrl, endPoint)
+		if err != nil {
+			kg.Warnf("Failed to start a Elastisearch Client")
+		}
+		go esCl.Start()
+		defer esCl.Stop()
+	}
+
+	// == //
 
 	// listen for interrupt signals
 	sigChan := GetOSSigChannel()
