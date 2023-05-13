@@ -307,7 +307,7 @@ func NewClient(server string) *LogClient {
 
 	lc.Server = server
 
-	lc.conn, err = grpc.Dial(server, grpc.WithInsecure())
+	lc.conn, err = grpc.Dial(lc.Server, grpc.WithInsecure())
 	if err != nil {
 		kg.Warnf("Failed to connect to KubeArmor's gRPC service (%s)", server)
 		return nil
@@ -543,7 +543,7 @@ func NewRelayServer(port string) *RelayServer {
 	// listen to gRPC port
 	listener, err := net.Listen("tcp", ":"+rs.Port)
 	if err != nil {
-		kg.Errf("Failed to listen a port (%s)\n", "32817")
+		kg.Errf("Failed to listen a port (%s)\n", rs.Port)
 		return nil
 	}
 	rs.Listener = listener
@@ -640,7 +640,6 @@ func connectToKubeArmor(nodeIP, port string) error {
 
 	// create connection info
 	server := nodeIP + ":" + port
-	//println(server)
 
 	defer DeleteClientEntry(nodeIP)
 

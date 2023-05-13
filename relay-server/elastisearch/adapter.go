@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
+	"log"
+	"strings"
+	"sync/atomic"
+	"time"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/dustin/go-humanize"
 	"github.com/elastic/go-elasticsearch/v7"
@@ -13,10 +17,6 @@ import (
 	"github.com/google/uuid"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
-	"log"
-	"strings"
-	"sync/atomic"
-	"time"
 )
 
 var (
@@ -32,13 +32,13 @@ type ElasticsearchClient struct {
 	cancel      context.CancelFunc
 	bulkIndexer esutil.BulkIndexer
 	ctx         context.Context
-	messageCh   chan interface{}
 	alertCh     chan interface{}
-	logCh       chan interface{}
 }
 
+// NewElasticsearchClient creates a new Elasticsearch client with the given Elasticsearch URL
+// and kubearmor LogClient with endpoint. It has a retry mechanism for certain HTTP status codes and a backoff function for retry delays.
+// It then creates a new NewBulkIndexer with the esClient
 func NewElasticsearchClient(esURL, Endpoint string) (*ElasticsearchClient, error) {
-	//Endpoint = "172.26.40.47:32767"
 	retryBackoff := backoff.NewExponentialBackOff()
 	cfg := elasticsearch.Config{
 		Addresses: []string{esURL},
@@ -60,38 +60,24 @@ func NewElasticsearchClient(esURL, Endpoint string) (*ElasticsearchClient, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Elasticsearch client: %v", err)
 	}
-	res, err := esClient.Ping()
-	if err != nil {
-		log.Fatalf("Error pinging the cluster: %s", err)
-	}
-	println(res)
 	bi, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
 		Client:        esClient,         // The Elasticsearch client
-		FlushBytes:    1000000,          // The flush threshold in bytes [3mb]
+		FlushBytes:    1000000,          // The flush threshold in bytes [1mb]
 		FlushInterval: 30 * time.Second, // The periodic flush interval [30 secs]
 	})
 	if err != nil {
 		log.Fatalf("Error creating the indexer: %s", err)
 	}
-	//messageCh := make(chan interface{}, 1000000)
 	alertCh := make(chan interface{}, 10000)
-	//logCh := make(chan interface{}, 1000000)
 	kaClient := server.NewClient(Endpoint)
 	return &ElasticsearchClient{kaClient: kaClient, bulkIndexer: bi, esClient: esClient, alertCh: alertCh}, nil
 }
 
-// GetElasticsearchClient returns an elastisearch client
-func GetElasticsearchClient() (*ElasticsearchClient, error) {
-	elastisearchServiceURL := flag.String("esSvcURL", "http://127.0.0.1:9200", "es Svc URL")
-	return NewElasticsearchClient(*elastisearchServiceURL, "localhost:32767")
-}
-
-// bulk Index takes an interface and index name and
-// adds to the bulkIndexer which will get flushed
-// after FlushBytes or FlushInterval has reached
+// bulkIndex takes an interface and index name and adds the data to the Elasticsearch bulk indexer.
+// The bulk indexer flushes after the FlushBytes or FlushInterval thresholds are reached.
+// The method generates a UUID as the document ID and includes success and failure callbacks for each item added to the bulk indexer.
 func (ecl *ElasticsearchClient) bulkIndex(a interface{}, index string) {
 	countEntered++
-	//fmt.Printf("Entered Bulk Index : %s, %s\n", countEntered, index)
 	data, err := json.Marshal(a)
 	if err != nil {
 		log.Fatalf("Error marshaling data: %s", err)
@@ -106,7 +92,6 @@ func (ecl *ElasticsearchClient) bulkIndex(a interface{}, index string) {
 			Body:       bytes.NewReader(data),
 			OnSuccess: func(ctx context.Context, item esutil.BulkIndexerItem, res esutil.BulkIndexerResponseItem) {
 				atomic.AddUint64(&countSuccessful, 1)
-				//println("SUCCESS")
 			},
 			OnFailure: func(ctx context.Context, item esutil.BulkIndexerItem, res esutil.BulkIndexerResponseItem, err error) {
 				if err != nil {
@@ -117,15 +102,18 @@ func (ecl *ElasticsearchClient) bulkIndex(a interface{}, index string) {
 			},
 		},
 	)
-	//println("ADDED")
 
 	if err != nil {
 		log.Fatalf("Error adding items to bulk indexer: %s", err)
 	}
 }
 
+// Start starts the Elasticsearch client by performing a health check on the gRPC server
+// and starting goroutines to consume messages from the alert channel and bulk index them.
+// The method starts a goroutine for each stream and waits for messages to be received.
+// Additional goroutines consume alert from the alert channel and bulk index them.
 func (ecl *ElasticsearchClient) Start() error {
-
+	println("entered start")
 	start = time.Now()
 	client := ecl.kaClient
 	ecl.ctx, ecl.cancel = context.WithCancel(context.Background())
@@ -136,21 +124,7 @@ func (ecl *ElasticsearchClient) Start() error {
 	}
 	kg.Printf("Checked the liveness of the gRPC server")
 
-	// start goroutines for each stream
 	client.WgServer.Add(1)
-	//go func() {
-	//	defer client.WgServer.Done()
-	//	for client.Running {
-	//		res, err := client.MsgStream.Recv()
-	//		if err != nil {
-	//			kg.Warnf("Failed to receive a message (%s)", client.Server)
-	//			break
-	//		}
-	//		//tel, _ := json.Marshal(res)
-	//		//fmt.Printf("%s\n", string(tel))
-	//		ecl.messageCh <- *res
-	//	}
-	//}()
 	go func() {
 		defer client.WgServer.Done()
 		for client.Running {
@@ -159,37 +133,18 @@ func (ecl *ElasticsearchClient) Start() error {
 				kg.Warnf("Failed to receive an alert (%s)", client.Server)
 				break
 			}
-			//tel, _ := json.Marshal(res)
-			//fmt.Printf("%s\n", string(tel))
+			tel, _ := json.Marshal(res)
+			fmt.Printf("%s\n", string(tel))
 			ecl.alertCh <- res
 		}
 	}()
-	//go func() {
-	//	defer client.WgServer.Done()
-	//	for client.Running {
-	//		res, err := client.LogStream.Recv()
-	//		if err != nil {
-	//			kg.Warnf("Failed to receive a log (%s)", client.Server)
-	//			break
-	//		}
-	//		//tel, _ := json.Marshal(res)
-	//		//fmt.Printf("%s\n", string(tel))
-	//		ecl.logCh <- res
-	//
-	//	}
-	//}()
 
-	// start goroutines to consume messages from the channels and bulk index them
 	for i := 0; i < 5; i++ {
 		go func() {
 			for {
 				select {
-				//case msg := <-ecl.messageCh:
-				//	ecl.bulkIndex(msg, "message")
 				case alert := <-ecl.alertCh:
 					ecl.bulkIndex(alert, "alert")
-				//case log := <-ecl.logCh:
-				//	ecl.bulkIndex(log, "log")
 				case <-ecl.ctx.Done():
 					return
 				}
@@ -199,6 +154,8 @@ func (ecl *ElasticsearchClient) Start() error {
 	return nil
 }
 
+// Stop stops the Elasticsearch client and performs necessary cleanup operations.
+// It stops the Kubearmor Relay client, closes the BulkIndexer and cancels the context.
 func (ecl *ElasticsearchClient) Stop() error {
 	logClient := ecl.kaClient
 	logClient.Running = false
@@ -206,7 +163,7 @@ func (ecl *ElasticsearchClient) Stop() error {
 
 	//Destoy KubeArmor Relay Client
 	if err := logClient.DestroyClient(); err != nil {
-		return fmt.Errorf("Failed to destroy the kubearmor relay gRPC client (%s)\n", err.Error())
+		return fmt.Errorf("failed to destroy the kubearmor relay gRPC client (%s)\n", err.Error())
 	}
 	kg.Printf("Destroyed kubearmor relay gRPC client")
 
@@ -223,6 +180,8 @@ func (ecl *ElasticsearchClient) Stop() error {
 	return nil
 }
 
+// PrintBulkStats prints data on the bulk indexing process, including the number of indexed documents,
+// the number of errors, and the indexing rate , after elastisearch client stops
 func (ecl *ElasticsearchClient) PrintBulkStats() {
 	biStats := ecl.bulkIndexer.Stats()
 	println(strings.Repeat("▔", 80))
@@ -246,5 +205,4 @@ func (ecl *ElasticsearchClient) PrintBulkStats() {
 		)
 	}
 	println(strings.Repeat("▔", 80))
-
 }

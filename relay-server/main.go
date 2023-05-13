@@ -5,10 +5,11 @@ package main
 
 import (
 	"flag"
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/elastisearch"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/elastisearch"
 
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
@@ -52,10 +53,12 @@ func main() {
 	flag.Parse()
 
 	//get env
-
 	enableEsDashboards := os.Getenv("ENABLE_DASHBOARDS")
 	esUrl := os.Getenv("ES_URL")
 	endPoint := os.Getenv("KUBEARMOR_SERVICE")
+	if endPoint == "" {
+		endPoint = "localhost:32767"
+	}
 
 	// == //
 
@@ -77,8 +80,9 @@ func main() {
 
 	// == //
 
-	//check and start an elastisearch client
+	// check and start an elastisearch client
 	if enableEsDashboards == "true" {
+		println("entered")
 		esCl, err := elastisearch.NewElasticsearchClient(esUrl, endPoint)
 		if err != nil {
 			kg.Warnf("Failed to start a Elastisearch Client")

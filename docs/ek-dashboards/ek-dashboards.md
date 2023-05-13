@@ -1,7 +1,7 @@
 # kubearmor-elasticstack-logging
 
 
-## Elastic Stack Visualisation(Elasticsearch and Kibana)
+## Elastic Stack Visualisation
 
 
 There would be 2 additional components along with the Relay server:
@@ -26,16 +26,16 @@ Kibana will be a part of deployment , while  ElasticSearch will be a part of Sta
 kubectl apply -f deployments/ek-dashboards
 ```
 
-For the log data to be sent to elasticsearch, change the valus of ```enableEsDashboards``` in ```deployments/relay-deployment.yaml>spec>container>env``` to ```true``` , it should look like 
+For the log data to be sent to elasticsearch, change the values of ```ENABLE_DASHBOARDS``` in ```deployments/relay-deployment.yaml>spec>template>spec>container>env``` to ```true``` , it should look like 
 
 ```
-     .......
+    .......
 
       containers:
       - name: kubearmor-relay-server
         image: sibashi/kubearmor-relay-server:latest
         env:
-          - name: enableEsDashboards
+          - name: ENABLE_DASHBOARDS
             value: "true"
     .......
 
@@ -43,20 +43,23 @@ For the log data to be sent to elasticsearch, change the valus of ```enableEsDas
 
 To View the DashBoards
 
-1. Portforward the Kibana service
+* Portforward the Kibana service
 ```
 kubectl port-forward deployment/kibana -n kube-system 5601:5601
 ```
-2. Open up a browser and go to [localhost:5601](localhost:5601)
-3. Go to sidebar and open ``Mangement`` -> ``Saved Objects`` -> ``Import``
+* Open up a browser and go to [localhost:5601](localhost:5601)
+* Go to sidebar and open ``Mangement`` -> ``Saved Objects`` -> ``Import``
 
 Drag and drop the file from ```docs/ek-dashboards/export.ndjson```
 
-4. Go to ``Dashboard`` section , selct ``KA``
+* Go to ``Dashboard`` section , selct ``KA``
 
-5. The visalisations should be ready 
+* The visalisations should be ready !!
 
-![Dash Board 1](./dash-1.png)
+Here are some example visulisation with [multiubuntu](https://github.com/kubearmor/KubeArmor/blob/main/examples/multiubuntu.md) and [wordpress-mysql](https://github.com/kubearmor/KubeArmor/blob/main/examples/wordpress-mysql.md) example
+
 ![Dash Board 2](./dash-2.png)
+![Dash Board 1](./dash-1.png)
+
 
 

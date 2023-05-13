@@ -39,7 +39,7 @@ spec:
           - name: ES_URL
             value: "http://elasticsearch:9200"
           - name: KUBEARMOR_SERVICE
-            value: "kubearmor:32767"
+            value: ""
         imagePullPolicy: Always
         ports:
         - containerPort: 32767

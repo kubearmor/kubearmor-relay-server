@@ -1,8 +1,8 @@
-./#!/bin/bash
+#!/bin/bash
 
 BASE_DIR=`dirname $(realpath "$0")`/../..
 cd $BASE_DIR
-[[ "$REPO" == "" ]] && REPO="sibashi/kubearmor-relay-server"
+[[ "$REPO" == "" ]] && REPO="kubearmor/kubearmor-relay-server"
 
 # check version
 
