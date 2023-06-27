@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/elastisearch"
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/elasticsearch"
 
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
@@ -80,12 +80,11 @@ func main() {
 
 	// == //
 
-	// check and start an elastisearch client
+	// check and start an elasticsearch client
 	if enableEsDashboards == "true" {
-		println("entered")
-		esCl, err := elastisearch.NewElasticsearchClient(esUrl, endPoint)
+		esCl, err := elasticsearch.NewElasticsearchClient(esUrl, endPoint)
 		if err != nil {
-			kg.Warnf("Failed to start a Elastisearch Client")
+			kg.Warnf("Failed to start a Elasticsearch Client")
 		}
 		go esCl.Start()
 		defer esCl.Stop()

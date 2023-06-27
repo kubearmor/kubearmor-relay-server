@@ -33,7 +33,7 @@ For the log data to be sent to elasticsearch, change the values of ```ENABLE_DAS
 
       containers:
       - name: kubearmor-relay-server
-        image: sibashi/kubearmor-relay-server:latest
+        image: kubearmor/kubearmor-relay-server:latest
         env:
           - name: ENABLE_DASHBOARDS
             value: "true"
