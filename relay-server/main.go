@@ -64,9 +64,13 @@ func main() {
 	go relayServer.ServeLogFeeds()
 	kg.Print("Started to serve gRPC-based log feeds")
 
-	// get log feeds (from KubeArmor)
-	go relayServer.GetFeedsFromNodes()
-	kg.Print("Started to receive log feeds from each node")
+	// // get log feeds (from KubeArmor)
+	// go relayServer.GetFeedsFromNodes()
+	// kg.Print("Started to receive log feeds from each node")
+
+	// get log feeds (from BlueLock)
+	go relayServer.ListenOnHTTP()
+	kg.Print("Started to receive log feeds from BlueLock")
 
 	// listen for interrupt signals
 	sigChan := GetOSSigChannel()

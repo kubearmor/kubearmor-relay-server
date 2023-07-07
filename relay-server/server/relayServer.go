@@ -7,8 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -617,6 +619,88 @@ func (rs *RelayServer) ServeLogFeeds() {
 	if err := rs.LogServer.Serve(rs.Listener); err != nil {
 		kg.Print("Terminated the gRPC service")
 	}
+}
+
+func (rs *RelayServer) ListenOnHTTP() {
+	http.HandleFunc("/", mainHandler)
+
+	log.Printf("[INFO]  : Falco Sidekick is up and listening on %s:%d", "", "2801")
+
+	server := &http.Server{
+		Addr: fmt.Sprintf("%s:%d", "", 2801),
+		// Timeouts
+		ReadTimeout:       60 * time.Second,
+		ReadHeaderTimeout: 60 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	if err := server.ListenAndServe(); err != nil {
+		log.Fatalf("[ERROR] : %v", err.Error())
+	}
+
+}
+
+// mainHandler is Falco Sidekick main handler (default).
+func mainHandler(w http.ResponseWriter, r *http.Request) {
+
+	if r.Body == nil {
+		http.Error(w, "Please send a valid request body", http.StatusBadRequest)
+
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Please send with post http method", http.StatusBadRequest)
+
+		return
+	}
+
+	d := json.NewDecoder(r.Body)
+	d.UseNumber()
+
+	logType := r.Header["Telemetry"][0]
+
+	if logType == "Alert" {
+		alert := pb.Alert{}
+
+		if err := d.Decode(&alert); err != nil {
+			kg.Warnf("Failed to clone an alert (%v)", err)
+			return
+		}
+
+		tel, _ := json.Marshal(alert)
+		fmt.Printf("%s\n", string(tel))
+
+		AlertLock.RLock()
+		for uid := range AlertStructs {
+			select {
+			case AlertStructs[uid].Broadcast <- (&alert):
+			default:
+			}
+		}
+		AlertLock.RUnlock()
+	} else if logType == "Log" {
+		log := pb.Log{}
+
+		if err := d.Decode(&log); err != nil {
+			kg.Warnf("Failed to clone an alert (%v)", err)
+			return
+		}
+
+		tel, _ := json.Marshal(log)
+		fmt.Printf("%s\n", string(tel))
+
+		LogLock.RLock()
+		for uid := range LogStructs {
+			select {
+			case LogStructs[uid].Broadcast <- (&log):
+			default:
+			}
+		}
+		LogLock.RUnlock()
+	}
+
 }
 
 // Remove nodeIP from ClientList
