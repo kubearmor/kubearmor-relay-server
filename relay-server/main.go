@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/elasticsearch"
+
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
 )
@@ -50,6 +52,14 @@ func main() {
 	gRPCPortPtr := flag.String("gRPCPort", "32767", "gRPC port")
 	flag.Parse()
 
+	//get env
+	enableEsDashboards := os.Getenv("ENABLE_DASHBOARDS")
+	esUrl := os.Getenv("ES_URL")
+	endPoint := os.Getenv("KUBEARMOR_SERVICE")
+	if endPoint == "" {
+		endPoint = "localhost:32767"
+	}
+
 	// == //
 
 	// create a relay server
@@ -67,6 +77,20 @@ func main() {
 	// get log feeds (from KubeArmor)
 	go relayServer.GetFeedsFromNodes()
 	kg.Print("Started to receive log feeds from each node")
+
+	// == //
+
+	// check and start an elasticsearch client
+	if enableEsDashboards == "true" {
+		esCl, err := elasticsearch.NewElasticsearchClient(esUrl, endPoint)
+		if err != nil {
+			kg.Warnf("Failed to start a Elasticsearch Client")
+		}
+		go esCl.Start()
+		defer esCl.Stop()
+	}
+
+	// == //
 
 	// listen for interrupt signals
 	sigChan := GetOSSigChannel()

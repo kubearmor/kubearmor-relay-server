@@ -33,6 +33,13 @@ spec:
       containers:
       - name: kubearmor-relay-server
         image: kubearmor/kubearmor-relay-server:latest
+        env:
+          - name: ENABLE_DASHBOARDS
+            value: "true"
+          - name: ES_URL
+            value: "http://elasticsearch:9200"
+          - name: KUBEARMOR_SERVICE
+            value: ""
         imagePullPolicy: Always
         ports:
         - containerPort: 32767
