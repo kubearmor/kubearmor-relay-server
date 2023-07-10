@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2021 Authors of KubeArmor
-// server exports kubearmor logs
+
+// Package server exports kubearmor logs
 package server
 
 import (
@@ -681,7 +682,7 @@ func (rs *RelayServer) ServeLogFeeds() {
 	}
 }
 
-// Remove nodeIP from ClientList
+// DeleteClientEntry removes nodeIP from ClientList
 func DeleteClientEntry(nodeIP string) {
 	ClientListLock.Lock()
 	defer ClientListLock.Unlock()

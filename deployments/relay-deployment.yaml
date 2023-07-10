@@ -40,6 +40,12 @@ spec:
             value: "http://elasticsearch:9200"
           - name: KUBEARMOR_SERVICE
             value: ""
+          - name: ENABLE_STDOUT_LOGS
+            value: "false"
+          - name: ENABLE_STDOUT_ALERTS
+            value: "false"
+          - name: ENABLE_STDOUT_MSGS
+            value: "false"
         imagePullPolicy: Always
         ports:
         - containerPort: 32767
