@@ -7,10 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
-	"net/http"
 	"sync"
 	"time"
 
@@ -19,9 +17,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
 	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
+	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 )
 
@@ -534,13 +534,16 @@ type RelayServer struct {
 
 	// wait group
 	WgServer sync.WaitGroup
+
+	// kubearmorPolicyServerPort
+	KubearmorPolicyServerPort string
 }
 
 // NewRelayServer Function
-func NewRelayServer(port string) *RelayServer {
+func NewRelayServer() *RelayServer {
 	rs := &RelayServer{}
 
-	rs.Port = port
+	rs.Port = cfg.GlobalCfg.GRPCPort
 
 	// listen to gRPC port
 	listener, err := net.Listen("tcp", ":"+rs.Port)
@@ -565,6 +568,15 @@ func NewRelayServer(port string) *RelayServer {
 	// register a log service
 	logService := &LogService{}
 	pb.RegisterLogServiceServer(rs.LogServer, logService)
+
+	// non K8s mode. need to register push log service as well
+	if !cfg.GlobalCfg.K8s {
+		pushLogService := &PushLogService{}
+		pb.RegisterPushLogServiceServer(rs.LogServer, pushLogService)
+		fmt.Println("Registered push service")
+	}
+
+	reflection.Register(rs.LogServer)
 
 	// initialize msg structs
 	MsgStructs = make(map[string]MsgStruct)
@@ -621,13 +633,14 @@ func (rs *RelayServer) ServeLogFeeds() {
 	}
 }
 
-func (rs *RelayServer) ListenOnHTTP() {
+/*
+func (rs *RelayServer) ListenOnHTTP(port string) {
 	http.HandleFunc("/", mainHandler)
 
-	log.Printf("[INFO]  : Falco Sidekick is up and listening on %s:%d", "", "2801")
+	log.Printf("[INFO]  : kubearmor-relay-server is listening for logs on %s:%s", "", port)
 
 	server := &http.Server{
-		Addr: fmt.Sprintf("%s:%d", "", 2801),
+		Addr: fmt.Sprintf("%s:%s", "", port),
 		// Timeouts
 		ReadTimeout:       60 * time.Second,
 		ReadHeaderTimeout: 60 * time.Second,
@@ -641,8 +654,9 @@ func (rs *RelayServer) ListenOnHTTP() {
 
 }
 
-// mainHandler is Falco Sidekick main handler (default).
+// mainHandler is relay server's main handler (default).
 func mainHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Headers:", r.Header)
 
 	if r.Body == nil {
 		http.Error(w, "Please send a valid request body", http.StatusBadRequest)
@@ -701,7 +715,21 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 		LogLock.RUnlock()
 	}
 
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		kg.Warnf("Error while parsing URL %s: %s", r.RemoteAddr, err)
+		return
+	}
+
+	if _, ok := ClientList[host]; !ok {
+		ClientListLock.Lock()
+		ClientList[host] = 1
+		ClientListLock.Unlock()
+		kg.Printf("Added a new broadcast client listening at %s", host)
+		go AddNewBroadcastClient(host)
+	}
 }
+*/
 
 // Remove nodeIP from ClientList
 
@@ -720,7 +748,7 @@ func DeleteClientEntry(nodeIP string) {
 // == KubeArmor == //
 // =============== //
 
-func connectToKubeArmor(nodeIP, port string) error {
+func connectToKubeArmorK8s(nodeIP, port string) error {
 
 	// create connection info
 	server := nodeIP + ":" + port
@@ -773,22 +801,24 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 	rs.WgServer.Add(1)
 	defer rs.WgServer.Done()
 
-	if K8s.InitK8sClient() {
-		kg.Print("Initialized the Kubernetes client")
+	if cfg.GlobalCfg.K8s {
+		if K8s.InitK8sClient() {
+			kg.Print("Initialized the Kubernetes client")
 
-		for Running {
-			newNodes := K8s.GetKubeArmorNodes()
+			for Running {
+				newNodes := K8s.GetKubeArmorNodes()
 
-			for _, nodeIP := range newNodes {
-				ClientListLock.Lock()
-				if _, ok := ClientList[nodeIP]; !ok {
-					ClientList[nodeIP] = 1
-					go connectToKubeArmor(nodeIP, rs.Port)
+				for _, nodeIP := range newNodes {
+					ClientListLock.Lock()
+					if _, ok := ClientList[nodeIP]; !ok {
+						ClientList[nodeIP] = 1
+						go connectToKubeArmorK8s(nodeIP, rs.Port)
+					}
+					ClientListLock.Unlock()
 				}
-				ClientListLock.Unlock()
-			}
 
-			time.Sleep(time.Second * 1)
+				time.Sleep(time.Second * 1)
+			}
 		}
 
 	}

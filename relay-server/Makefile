@@ -7,7 +7,7 @@ build:
 	cd $(CURDIR); go build -o kubearmor-relay-server main.go
 
 .PHONY: run
-run: $(CURDIR)/kubearmor-relay-server
+run: $(CURDIR)/kubearmor-relay-server build
 	cd $(CURDIR); ./kubearmor-relay-server
 
 .PHONY: build-image
