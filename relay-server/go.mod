@@ -3,9 +3,11 @@ module github.com/kubearmor/kubearmor-relay-server/relay-server
 go 1.20
 
 replace (
+	#github.com/kubearmor/KubeArmor => ../../KubeArmor
+	#github.com/kubearmor/KubeArmor/protobuf => ../../KubeArmor/protobuf
 	github.com/google/gnostic => github.com/google/gnostic v0.6.8
-	github.com/kubearmor/KubeArmor => github.com/DelusionalOptimist/KubeArmor v0.0.0-20230719064213-55d16c9b345a
-	github.com/kubearmor/KubeArmor/protobuf => github.com/DelusionalOptimist/KubeArmor/protobuf v0.0.0-20230719064213-55d16c9b345a
+	github.com/kubearmor/KubeArmor => github.com/DelusionalOptimist/KubeArmor v0.0.0-20230719100329-0cdf8478d17a
+	github.com/kubearmor/KubeArmor/protobuf => github.com/DelusionalOptimist/KubeArmor/protobuf v0.0.0-20230719100329-0cdf8478d17a
 	github.com/kubearmor/kubearmor-relay-server/relay-server => ./
 	github.com/kubearmor/kubearmor-relay-server/relay-server/common => ./common
 	github.com/kubearmor/kubearmor-relay-server/relay-server/log => ./log

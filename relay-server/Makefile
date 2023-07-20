@@ -10,6 +10,10 @@ build:
 run: $(CURDIR)/kubearmor-relay-server build
 	cd $(CURDIR); ./kubearmor-relay-server
 
+.PHONY: run-container
+run-container: $(CURDIR)/kubearmor-relay-server build
+	cd $(CURDIR); ./kubearmor-relay-server -k8s=false
+
 .PHONY: build-image
 build-image:
 	docker images | grep kubearmor-relay-server | awk '{print $$3}' | xargs -I {} docker rmi {}

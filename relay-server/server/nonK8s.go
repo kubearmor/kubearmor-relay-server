@@ -21,7 +21,7 @@ func (ls *PushLogService) HealthCheck(ctx context.Context, nonce *pb.NonceMessag
 }
 
 // addMsgStruct Function
-func (ls *PushLogService) addMsgStruct(uid string, conn chan *pb.Message, filter string) {
+func addMsgStruct(uid string, conn chan *pb.Message, filter string) {
 	MsgLock.Lock()
 	defer MsgLock.Unlock()
 
@@ -35,7 +35,7 @@ func (ls *PushLogService) addMsgStruct(uid string, conn chan *pb.Message, filter
 }
 
 // removeMsgStruct Function
-func (ls *PushLogService) removeMsgStruct(uid string) {
+func removeMsgStruct(uid string) {
 	MsgLock.Lock()
 	defer MsgLock.Unlock()
 
@@ -49,21 +49,22 @@ func (ls *PushLogService) PushMessages(svr pb.PushLogService_PushMessagesServer)
 	uid := uuid.Must(uuid.NewRandom()).String()
 	conn := make(chan *pb.Message, 1)
 	defer close(conn)
-	ls.addMsgStruct(uid, conn, "all")
-	defer ls.removeMsgStruct(uid)
+	addMsgStruct(uid, conn, "all")
+	defer removeMsgStruct(uid)
 
 	var err error
 	for Running {
 		var res *pb.Message
 
 		if res, err = svr.Recv(); err != nil {
-			kg.Warnf("Failed to recieve an alert")
+			kg.Warnf("Failed to recieve a message")
+			break
 		}
 
 		msg := pb.Message{}
 
 		if err := kl.Clone(*res, &msg); err != nil {
-			kg.Warnf("Failed to clone an alert (%v)", *res)
+			kg.Warnf("Failed to clone a message (%v)", *res)
 			continue
 		}
 
@@ -104,7 +105,7 @@ func (ls *PushLogService) PushMessages(svr pb.PushLogService_PushMessagesServer)
 }
 
 // addAlertStruct Function
-func (ls *PushLogService) addAlertStruct(uid string, conn chan *pb.Alert, filter string) {
+func addAlertStruct(uid string, conn chan *pb.Alert, filter string) {
 	AlertLock.Lock()
 	defer AlertLock.Unlock()
 
@@ -118,7 +119,7 @@ func (ls *PushLogService) addAlertStruct(uid string, conn chan *pb.Alert, filter
 }
 
 // removeAlertStruct Function
-func (ls *PushLogService) removeAlertStruct(uid string) {
+func removeAlertStruct(uid string) {
 	AlertLock.Lock()
 	defer AlertLock.Unlock()
 
@@ -133,8 +134,8 @@ func (ls *PushLogService) PushAlerts(svr pb.PushLogService_PushAlertsServer) err
 
 	conn := make(chan *pb.Alert, 1)
 	defer close(conn)
-	ls.addAlertStruct(uid, conn, "policy")
-	defer ls.removeAlertStruct(uid)
+	addAlertStruct(uid, conn, "policy")
+	defer removeAlertStruct(uid)
 
 	var err error
 	for Running {
@@ -142,6 +143,7 @@ func (ls *PushLogService) PushAlerts(svr pb.PushLogService_PushAlertsServer) err
 
 		if res, err = svr.Recv(); err != nil {
 			kg.Warnf("Failed to recieve an alert")
+			break
 		}
 
 		alert := pb.Alert{}
@@ -189,7 +191,7 @@ func (ls *PushLogService) PushAlerts(svr pb.PushLogService_PushAlertsServer) err
 }
 
 // addLogStruct Function
-func (ls *PushLogService) addLogStruct(uid string, conn chan *pb.Log, filter string) {
+func addLogStruct(uid string, conn chan *pb.Log, filter string) {
 	LogLock.Lock()
 	defer LogLock.Unlock()
 
@@ -203,7 +205,7 @@ func (ls *PushLogService) addLogStruct(uid string, conn chan *pb.Log, filter str
 }
 
 // removeLogStruct Function
-func (ls *PushLogService) removeLogStruct(uid string) {
+func removeLogStruct(uid string) {
 	LogLock.Lock()
 	defer LogLock.Unlock()
 
@@ -218,8 +220,8 @@ func (ls *PushLogService) PushLogs(svr pb.PushLogService_PushLogsServer) error {
 
 	conn := make(chan *pb.Log, 1)
 	defer close(conn)
-	ls.addLogStruct(uid, conn, "system")
-	defer ls.removeLogStruct(uid)
+	addLogStruct(uid, conn, "system")
+	defer removeLogStruct(uid)
 
 	var err error
 	for Running {
@@ -227,12 +229,13 @@ func (ls *PushLogService) PushLogs(svr pb.PushLogService_PushLogsServer) error {
 
 		if res, err = svr.Recv(); err != nil {
 			kg.Warnf("Failed to recieve a log")
+			break
 		}
 
 		log := pb.Log{}
 
 		if err := kl.Clone(*res, &log); err != nil {
-			kg.Warnf("Failed to clone a message (%v)", *res)
+			kg.Warnf("Failed to clone a log (%v)", *res )
 			continue
 		}
 
@@ -267,7 +270,7 @@ func (ls *PushLogService) PushLogs(svr pb.PushLogService_PushLogsServer) error {
 		*/
 	}
 
-	kg.Print("Stopped receiving pushed logs from")
+	kg.Print("Stopped receiving pushed logs")
 
 	return nil
 }

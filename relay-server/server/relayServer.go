@@ -559,7 +559,7 @@ func NewRelayServer() *RelayServer {
 
 	kasp := keepalive.ServerParameters{
 		Time:    1 * time.Second,
-		Timeout: 1 * time.Second,
+		Timeout: 5 * time.Second,
 	}
 
 	// create a log server
@@ -573,7 +573,15 @@ func NewRelayServer() *RelayServer {
 	if !cfg.GlobalCfg.K8s {
 		pushLogService := &PushLogService{}
 		pb.RegisterPushLogServiceServer(rs.LogServer, pushLogService)
-		fmt.Println("Registered push service")
+
+		policyStreamerService := &PolicyStreamerServer{}
+		policyStreamerService.Init()
+		pb.RegisterPolicyStreamServiceServer(rs.LogServer, policyStreamerService)
+		kg.Printf("Registered policy streamer")
+
+		policyService := &PolicyReceiverServer{}
+		pb.RegisterPolicyServiceServer(rs.LogServer, policyService)
+		kg.Printf("Registered policy receiver")
 	}
 
 	reflection.Register(rs.LogServer)

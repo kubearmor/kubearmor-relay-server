@@ -11,10 +11,11 @@ type KubeArmorRelayConfig struct {
 	GRPCPort string
 
 	// non-k8s config
+	K8s bool
+
 	//BroadcastPolicies bool
 	//HTTPListenerPort string
 	//KubeArmorPolicyServicePort string
-	K8s bool
 }
 
 var GlobalCfg KubeArmorRelayConfig
@@ -30,9 +31,9 @@ func LoadConfig() error {
 	flag.Parse()
 
 	GlobalCfg = KubeArmorRelayConfig {
-		//BroadcastPolicies: *broadcastPoliciesPtr,
 		GRPCPort: *gRPCPortPtr,
 		K8s: *k8s,
+		//BroadcastPolicies: *broadcastPoliciesPtr,
 		//KubeArmorPolicyServicePort: *kubearmorPolicyServicePortPtr,
 		//HTTPListenerPort: *httpListenerPortPtr,
 	}

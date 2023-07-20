@@ -57,12 +57,6 @@ func main() {
 	}
 	kg.Printf("Created a relay server (:%s)", config.GlobalCfg.GRPCPort)
 
-	// register policy broadcaster
-	//if config.GlobalCfg.BroadcastPolicies {
-	//	relayServer.KubearmorPolicyServerPort = config.GlobalCfg.KubeArmorPolicyServicePort
-	//	relayServer.InitPolicyBroadcaster()
-	//}
-
 	// serve log feeds (to clients)
 	go relayServer.ServeLogFeeds()
 	kg.Print("Started to serve gRPC-based log feeds")
