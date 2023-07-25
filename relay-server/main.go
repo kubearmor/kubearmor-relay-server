@@ -62,7 +62,7 @@ func main() {
 	kg.Print("Started to serve gRPC-based log feeds")
 
 	// get log feeds (from K8s nodes running KubeArmor)
-	if !cfg.GlobalCfg.K8s {
+	if cfg.GlobalCfg.K8s {
 		go relayServer.GetFeedsFromK8sNodes()
 		kg.Print("Started to receive log feeds from each node")
 	}

@@ -170,25 +170,6 @@ func (ls *PushLogService) PushAlerts(svr pb.PushLogService_PushAlertsServer) err
 		}
 	}
 
-	/*
-		select {
-		case <-svr.Context().Done():
-			return nil
-		case resp := <-conn:
-			if status, ok := status.FromError(svr.Send(resp)); ok {
-				switch status.Code() {
-				case codes.OK:
-					// noop
-				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-					kg.Warnf("relay failed to send an alert=[%+v] err=[%s]", resp, status.Err().Error())
-					return status.Err()
-				default:
-					return nil
-				}
-			}
-		}
-	*/
-
 	kg.Print("Stopped receiving pushed alerts from")
 
 	return nil
@@ -264,25 +245,6 @@ func (ls *PushLogService) PushLogs(svr pb.PushLogService_PushLogsServer) error {
 			}
 			LogLock.RUnlock()
 		}
-
-		/*
-			select {
-			case <-svr.Context().Done():
-				return nil
-			case resp := <-conn:
-				if status, ok := status.FromError(svr.Send(resp)); ok {
-					switch status.Code() {
-					case codes.OK:
-						// noop
-					case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-						kg.Warnf("relay failed to send a log=[%+v] err=[%s]", resp, status.Err().Error())
-						return status.Err()
-					default:
-						return nil
-					}
-				}
-			}
-		*/
 	}
 
 	kg.Print("Stopped receiving pushed logs")
