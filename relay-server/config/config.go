@@ -30,9 +30,9 @@ func LoadConfig() error {
 
 	flag.Parse()
 
-	GlobalCfg = KubeArmorRelayConfig {
+	GlobalCfg = KubeArmorRelayConfig{
 		GRPCPort: *gRPCPortPtr,
-		K8s: *k8s,
+		K8s:      *k8s,
 		//BroadcastPolicies: *broadcastPoliciesPtr,
 		//KubeArmorPolicyServicePort: *kubearmorPolicyServicePortPtr,
 		//HTTPListenerPort: *httpListenerPortPtr,

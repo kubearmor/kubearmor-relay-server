@@ -170,7 +170,7 @@ func (ls *PushLogService) PushAlerts(svr pb.PushLogService_PushAlertsServer) err
 		}
 	}
 
-		/*
+	/*
 		select {
 		case <-svr.Context().Done():
 			return nil
@@ -187,7 +187,7 @@ func (ls *PushLogService) PushAlerts(svr pb.PushLogService_PushAlertsServer) err
 				}
 			}
 		}
-		*/
+	*/
 
 	kg.Print("Stopped receiving pushed alerts from")
 
@@ -248,7 +248,7 @@ func (ls *PushLogService) PushLogs(svr pb.PushLogService_PushLogsServer) error {
 			log := pb.Log{}
 
 			if err := kl.Clone(*res, &log); err != nil {
-				kg.Warnf("Failed to clone a log (%v)", *res )
+				kg.Warnf("Failed to clone a log (%v)", *res)
 				continue
 			}
 
@@ -266,22 +266,22 @@ func (ls *PushLogService) PushLogs(svr pb.PushLogService_PushLogsServer) error {
 		}
 
 		/*
-		select {
-		case <-svr.Context().Done():
-			return nil
-		case resp := <-conn:
-			if status, ok := status.FromError(svr.Send(resp)); ok {
-				switch status.Code() {
-				case codes.OK:
-					// noop
-				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-					kg.Warnf("relay failed to send a log=[%+v] err=[%s]", resp, status.Err().Error())
-					return status.Err()
-				default:
-					return nil
+			select {
+			case <-svr.Context().Done():
+				return nil
+			case resp := <-conn:
+				if status, ok := status.FromError(svr.Send(resp)); ok {
+					switch status.Code() {
+					case codes.OK:
+						// noop
+					case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
+						kg.Warnf("relay failed to send a log=[%+v] err=[%s]", resp, status.Err().Error())
+						return status.Err()
+					default:
+						return nil
+					}
 				}
 			}
-		}
 		*/
 	}
 

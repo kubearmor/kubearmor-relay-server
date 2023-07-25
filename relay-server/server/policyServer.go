@@ -21,7 +21,7 @@ var (
 	PolicyDir = "/opt/kubearmor-relay/policies"
 
 	PolicyStructs map[string]PolicyStruct
-	PolicyLock *sync.RWMutex
+	PolicyLock    *sync.RWMutex
 )
 
 type PolicyStruct struct {
@@ -112,7 +112,7 @@ func (ps *PolicyStreamerServer) ContainerPolicy(svr pb.PolicyStreamService_Conta
 }
 
 // removePolicyStruct Function
-func removePolicyStruct (uid string) {
+func removePolicyStruct(uid string) {
 	PolicyLock.Lock()
 	defer PolicyLock.Unlock()
 
@@ -184,7 +184,7 @@ func backupPolicy(policyEvent tp.K8sKubeArmorPolicyEvent) {
 	var file *os.File
 	var err error
 
-	if file, err = os.Create(filepath.Join(PolicyDir, policyEvent.Object.Metadata.Name + ".yaml")); err == nil {
+	if file, err = os.Create(filepath.Join(PolicyDir, policyEvent.Object.Metadata.Name+".yaml")); err == nil {
 		if policyBytes, err := json.Marshal(policyEvent); err == nil {
 			if _, err = file.Write(policyBytes); err == nil {
 				if err := file.Close(); err != nil {
@@ -197,7 +197,7 @@ func backupPolicy(policyEvent tp.K8sKubeArmorPolicyEvent) {
 
 // removePolicy removes policies from the fs
 func removePolicy(name string) {
-	fname := filepath.Join(PolicyDir, name + ".yaml")
+	fname := filepath.Join(PolicyDir, name+".yaml")
 	if _, err := os.Stat(fname); err != nil {
 		kg.Printf("Backup policy [%v] not exist", fname)
 		return
