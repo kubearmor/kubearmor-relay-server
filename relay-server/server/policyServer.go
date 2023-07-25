@@ -43,7 +43,7 @@ func (ps *PolicyStreamerServer) HealthCheck(ctx context.Context, nonce *pb.Healt
 	return &replyMessage, nil
 }
 
-func (ps *PolicyStreamerServer) ContainerPolicy(rs *pb.Response, svr pb.PolicyStreamService_ContainerPolicyServer) error {
+func (ps *PolicyStreamerServer) ContainerPolicy(svr pb.PolicyStreamService_ContainerPolicyServer) error {
 	uid := uuid.Must(uuid.NewRandom()).String()
 	conn := make(chan *pb.Policy, 1)
 	defer close(conn)
@@ -121,23 +121,12 @@ func removePolicyStruct (uid string) {
 	kg.Printf("Deleted the client (%s) for PushContainerPolicy", uid)
 }
 
-func (ps *PolicyStreamerServer) HostPolicy(rs *pb.Response, svr pb.PolicyStreamService_HostPolicyServer) error {
+func (ps *PolicyStreamerServer) HostPolicy(svr pb.PolicyStreamService_HostPolicyServer) error {
 	return nil
 }
 
 type PolicyReceiverServer struct {
-	//pb.PolicyServiceServer
-	//UpdateContainerPolicy func(tp.K8sKubeArmorPolicyEvent)
-	//UpdateHostPolicy      func(tp.K8sKubeArmorHostPolicyEvent)
 }
-
-/*
-func (rs *RelayServer) InitPolicyBroadcaster() {
-	policyService := &policy.ServiceServer{}
-	policyService.UpdateContainerPolicy = WatchPolicies
-	pb.RegisterPolicyServiceServer(rs.LogServer, policyService)
-}
-*/
 
 func (pr *PolicyReceiverServer) ContainerPolicy(c context.Context, data *pb.Policy) (*pb.Response, error) {
 	policyEvent := tp.K8sKubeArmorPolicyEvent{}
@@ -170,11 +159,6 @@ func (pr *PolicyReceiverServer) ContainerPolicy(c context.Context, data *pb.Poli
 
 	kg.Printf("Pushing policy %s", policyEvent.Object.Metadata.Name)
 
-	//for addr := range ClientList {
-	//	kg.Printf("Pushing policy %s to client %s", event.Object.Metadata.Name, addr)
-	//	PushPolicy(addr, config.GlobalCfg.KubeArmorPolicyServicePort, &req)
-	//}
-
 	if policyEvent.Type == "ADDED" || policyEvent.Type == "MODIFIED" {
 		backupPolicy(policyEvent)
 	} else if policyEvent.Type == "DELETED" {
@@ -187,29 +171,6 @@ func (pr *PolicyReceiverServer) ContainerPolicy(c context.Context, data *pb.Poli
 func (pr *PolicyReceiverServer) HostPolicy(c context.Context, data *pb.Policy) (*pb.Response, error) {
 	return nil, nil
 }
-
-/*
-func PushPolicy(addr, port string, req *pb.Policy) {
-	grpcURL := fmt.Sprintf("%s:%s", addr, port)
-	conn, err := grpc.Dial(grpcURL, grpc.WithInsecure())
-	if err != nil {
-		kg.Warnf("Failed to connect with kubearmor at %s", addr)
-		// it is possible that this instance is dead
-		DeleteClientEntry(addr)
-		return
-	}
-
-	client := pb.NewPolicyServiceClient(conn)
-
-	resp, err := client.ContainerPolicy(context.Background(), req)
-	if err != nil || resp.Status != 1 {
-		kg.Warnf("Failed to send policy to kubearmor at %s", addr)
-		return
-	}
-	kg.Printf("Pushed policy to %s successfully", addr)
-}
-*/
-
 
 // backupPolicy saves policy to file system so that it can be broadcasted to new clients
 func backupPolicy(policyEvent tp.K8sKubeArmorPolicyEvent) {

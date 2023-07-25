@@ -56,50 +56,43 @@ func (ls *PushLogService) PushMessages(svr pb.PushLogService_PushMessagesServer)
 	for Running {
 		var res *pb.Message
 
-		if res, err = svr.Recv(); err != nil {
-			kg.Warnf("Failed to recieve a message")
-			break
-		}
-
-		msg := pb.Message{}
-
-		if err := kl.Clone(*res, &msg); err != nil {
-			kg.Warnf("Failed to clone a message (%v)", *res)
-			continue
-		}
-
-		tel, _ := json.Marshal(msg)
-		fmt.Printf("%s\n", string(tel))
-
-		MsgLock.RLock()
-		for uid := range MsgStructs {
-			select {
-			case MsgStructs[uid].Broadcast <- (&msg):
-			default:
-			}
-		}
-		MsgLock.RUnlock()
-		/*
 		select {
 		case <-svr.Context().Done():
+			replyMessage := pb.ReplyMessage{
+				Retval: 1,
+			}
+			svr.Send(&replyMessage)
+			kg.Printf("Closing Message stream for (%s)", uid)
 			return nil
-		case resp := <-conn:
-			if status, ok := status.FromError(svr.Recv()); ok {
-				switch status.Code() {
-				case codes.OK:
-					// noop
-				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
-					kg.Warnf("relay failed to send a message=[%+v] err=[%s]", resp, status.Err().Error())
-					return status.Err()
+		default:
+			if res, err = svr.Recv(); err != nil {
+				kg.Warnf("Failed to recieve a message")
+				return err
+			}
+
+			msg := pb.Message{}
+
+			if err := kl.Clone(*res, &msg); err != nil {
+				kg.Warnf("Failed to clone a message (%v)", *res)
+				continue
+			}
+
+			tel, _ := json.Marshal(msg)
+			fmt.Printf("%s\n", string(tel))
+
+			MsgLock.RLock()
+			for uid := range MsgStructs {
+				select {
+				case MsgStructs[uid].Broadcast <- (&msg):
 				default:
-					return nil
 				}
 			}
+			MsgLock.RUnlock()
+
 		}
-		*/
 	}
 
-	kg.Print("Stopped receiving pushed messages from")
+	kg.Printf("Stopped receiving Pushed messages from (%s)", uid)
 
 	return nil
 }
@@ -141,29 +134,41 @@ func (ls *PushLogService) PushAlerts(svr pb.PushLogService_PushAlertsServer) err
 	for Running {
 		var res *pb.Alert
 
-		if res, err = svr.Recv(); err != nil {
-			kg.Warnf("Failed to recieve an alert")
-			break
-		}
-
-		alert := pb.Alert{}
-
-		if err := kl.Clone(*res, &alert); err != nil {
-			kg.Warnf("Failed to clone an alert (%v)", *res)
-			continue
-		}
-
-		tel, _ := json.Marshal(alert)
-		fmt.Printf("%s\n", string(tel))
-
-		AlertLock.RLock()
-		for uid := range AlertStructs {
-			select {
-			case AlertStructs[uid].Broadcast <- (&alert):
-			default:
+		select {
+		case <-svr.Context().Done():
+			replyMessage := pb.ReplyMessage{
+				Retval: 1,
 			}
+			svr.Send(&replyMessage)
+			kg.Printf("Closing Alert stream for (%s)", uid)
+			return nil
+		default:
+
+			if res, err = svr.Recv(); err != nil {
+				kg.Warnf("Failed to recieve an alert")
+				return err
+			}
+
+			alert := pb.Alert{}
+
+			if err := kl.Clone(*res, &alert); err != nil {
+				kg.Warnf("Failed to clone an alert (%v)", *res)
+				continue
+			}
+
+			tel, _ := json.Marshal(alert)
+			fmt.Printf("%s\n", string(tel))
+
+			AlertLock.RLock()
+			for uid := range AlertStructs {
+				select {
+				case AlertStructs[uid].Broadcast <- (&alert):
+				default:
+				}
+			}
+			AlertLock.RUnlock()
 		}
-		AlertLock.RUnlock()
+	}
 
 		/*
 		select {
@@ -183,7 +188,6 @@ func (ls *PushLogService) PushAlerts(svr pb.PushLogService_PushAlertsServer) err
 			}
 		}
 		*/
-	}
 
 	kg.Print("Stopped receiving pushed alerts from")
 
@@ -227,29 +231,40 @@ func (ls *PushLogService) PushLogs(svr pb.PushLogService_PushLogsServer) error {
 	for Running {
 		var res *pb.Log
 
-		if res, err = svr.Recv(); err != nil {
-			kg.Warnf("Failed to recieve a log")
-			break
-		}
-
-		log := pb.Log{}
-
-		if err := kl.Clone(*res, &log); err != nil {
-			kg.Warnf("Failed to clone a log (%v)", *res )
-			continue
-		}
-
-		tel, _ := json.Marshal(log)
-		fmt.Printf("%s\n", string(tel))
-
-		LogLock.RLock()
-		for uid := range LogStructs {
-			select {
-			case LogStructs[uid].Broadcast <- (&log):
-			default:
+		select {
+		case <-svr.Context().Done():
+			replyMessage := pb.ReplyMessage{
+				Retval: 1,
 			}
+			svr.Send(&replyMessage)
+			kg.Printf("Closing Log stream for (%s)", uid)
+			return nil
+		default:
+			if res, err = svr.Recv(); err != nil {
+				kg.Warnf("Failed to recieve a log")
+				return err
+			}
+
+			log := pb.Log{}
+
+			if err := kl.Clone(*res, &log); err != nil {
+				kg.Warnf("Failed to clone a log (%v)", *res )
+				continue
+			}
+
+			tel, _ := json.Marshal(log)
+			fmt.Printf("%s\n", string(tel))
+
+			LogLock.RLock()
+			for uid := range LogStructs {
+				select {
+				case LogStructs[uid].Broadcast <- (&log):
+				default:
+				}
+			}
+			LogLock.RUnlock()
 		}
-		LogLock.RUnlock()
+
 		/*
 		select {
 		case <-svr.Context().Done():

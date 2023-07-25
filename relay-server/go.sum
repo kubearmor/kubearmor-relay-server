@@ -1,8 +1,8 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.34.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
-github.com/DelusionalOptimist/KubeArmor/protobuf v0.0.0-20230719100329-0cdf8478d17a h1:j06LDkRRXd+8PfS534l52uNNZqDmlqoOd3ckUDqWN4E=
-github.com/DelusionalOptimist/KubeArmor/protobuf v0.0.0-20230719100329-0cdf8478d17a/go.mod h1:u2IBmj/3GtZodhGIPlO0gwNZ+C/dDlxER1BPQfCOEsk=
+github.com/DelusionalOptimist/KubeArmor/protobuf v0.0.0-20230724124620-b12997e641bb h1:tlStdOWDOUtjHEhp7Nx60leGB0hb2jwuFy3CITP4SyA=
+github.com/DelusionalOptimist/KubeArmor/protobuf v0.0.0-20230724124620-b12997e641bb/go.mod h1:u2IBmj/3GtZodhGIPlO0gwNZ+C/dDlxER1BPQfCOEsk=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
 github.com/benbjohnson/clock v1.1.0 h1:Q92kusRqC1XV2MjkWETPvjJVqKetz1OzxZB7mHJLju8=

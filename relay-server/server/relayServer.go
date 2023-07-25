@@ -641,6 +641,7 @@ func (rs *RelayServer) ServeLogFeeds() {
 	}
 }
 
+// TOMBSTONING: REF FOR SIDEKICK
 /*
 func (rs *RelayServer) ListenOnHTTP(port string) {
 	http.HandleFunc("/", mainHandler)
@@ -740,7 +741,6 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 */
 
 // Remove nodeIP from ClientList
-
 func DeleteClientEntry(nodeIP string) {
 	ClientListLock.Lock()
 	defer ClientListLock.Unlock()
@@ -804,7 +804,7 @@ func connectToKubeArmorK8s(nodeIP, port string) error {
 }
 
 // GetFeedsFromNodes Function
-func (rs *RelayServer) GetFeedsFromNodes() {
+func (rs *RelayServer) GetFeedsFromK8sNodes() {
 
 	rs.WgServer.Add(1)
 	defer rs.WgServer.Done()

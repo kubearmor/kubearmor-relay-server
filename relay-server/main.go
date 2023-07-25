@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/config"
+	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
 )
@@ -44,7 +44,7 @@ func GetOSSigChannel() chan os.Signal {
 // ========== //
 
 func main() {
-	err := config.LoadConfig()
+	err := cfg.LoadConfig()
 	if err != nil {
 		kg.Errf("Failed to load config %s", err)
 	}
@@ -52,22 +52,20 @@ func main() {
 	// create a relay server
 	relayServer := server.NewRelayServer()
 	if relayServer == nil {
-		kg.Warnf("Failed to create a relay server (:%s)", config.GlobalCfg.GRPCPort)
+		kg.Warnf("Failed to create a relay server (:%s)", cfg.GlobalCfg.GRPCPort)
 		return
 	}
-	kg.Printf("Created a relay server (:%s)", config.GlobalCfg.GRPCPort)
+	kg.Printf("Created a relay server (:%s)", cfg.GlobalCfg.GRPCPort)
 
 	// serve log feeds (to clients)
 	go relayServer.ServeLogFeeds()
 	kg.Print("Started to serve gRPC-based log feeds")
 
-	// get log feeds (from KubeArmor)
-	go relayServer.GetFeedsFromNodes()
-	kg.Print("Started to receive log feeds from each node")
-
-	// get HTTP log feeds (from Bluelock)
-	//go relayServer.ListenOnHTTP(config.GlobalCfg.HTTPListenerPort)
-	//kg.Print("Started to receive log feeds from BlueLock")
+	// get log feeds (from K8s nodes running KubeArmor)
+	if !cfg.GlobalCfg.K8s {
+		go relayServer.GetFeedsFromK8sNodes()
+		kg.Print("Started to receive log feeds from each node")
+	}
 
 	// listen for interrupt signals
 	sigChan := GetOSSigChannel()
