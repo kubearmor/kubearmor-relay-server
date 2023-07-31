@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2021 Authors of KubeArmor
 
+// Package server exports kubearmor logs
 package server
 
 import (
@@ -121,7 +122,7 @@ func (ls *LogService) removeMsgStruct(uid string) {
 // WatchMessages Function
 func (ls *LogService) WatchMessages(req *pb.RequestMessage, svr pb.LogService_WatchMessagesServer) error {
 	uid := uuid.Must(uuid.NewRandom()).String()
-	conn := make(chan *pb.Message, 1)
+	conn := make(chan *pb.Message, 1000)
 	defer close(conn)
 	ls.addMsgStruct(uid, conn, req.Filter)
 	defer ls.removeMsgStruct(uid)
@@ -179,7 +180,7 @@ func (ls *LogService) WatchAlerts(req *pb.RequestMessage, svr pb.LogService_Watc
 	if req.Filter != "all" && req.Filter != "policy" {
 		return nil
 	}
-	conn := make(chan *pb.Alert, 1)
+	conn := make(chan *pb.Alert, 1000)
 	defer close(conn)
 	ls.addAlertStruct(uid, conn, req.Filter)
 	defer ls.removeAlertStruct(uid)
@@ -237,7 +238,7 @@ func (ls *LogService) WatchLogs(req *pb.RequestMessage, svr pb.LogService_WatchL
 	if req.Filter != "all" && req.Filter != "system" {
 		return nil
 	}
-	conn := make(chan *pb.Log, 1)
+	conn := make(chan *pb.Log, 10000)
 	defer close(conn)
 	ls.addLogStruct(uid, conn, req.Filter)
 	defer ls.removeLogStruct(uid)
@@ -399,30 +400,47 @@ func (lc *LogClient) WatchMessages() error {
 			kg.Warnf("Failed to receive a message (%s)", lc.Server)
 			break
 		}
-
-		msg := pb.Message{}
-
-		if err := kl.Clone(*res, &msg); err != nil {
-			kg.Warnf("Failed to clone a message (%v)", *res)
-			continue
+		select {
+		case MsgBufferChannel <- res:
+		default:
 		}
-
-		tel, _ := json.Marshal(msg)
-		fmt.Printf("%s\n", string(tel))
-
-		MsgLock.RLock()
-		for uid := range MsgStructs {
-			select {
-			case MsgStructs[uid].Broadcast <- (&msg):
-			default:
-			}
-		}
-		MsgLock.RUnlock()
 	}
 
 	kg.Print("Stopped watching messages from " + lc.Server)
 
 	return nil
+}
+
+// AddMsgFromBuffChan Adds Msg from MsgBufferChannel into MsgStructs
+func (rs *RelayServer) AddMsgFromBuffChan() {
+
+	for Running {
+		select {
+		case res := <-MsgBufferChannel:
+			msg := pb.Message{}
+
+			if err := kl.Clone(*res, &msg); err != nil {
+				kg.Warnf("Failed to clone a message (%v)", *res)
+				continue
+			}
+			if stdoutmsg {
+				tel, _ := json.Marshal(msg)
+				fmt.Printf("%s\n", string(tel))
+			}
+			MsgLock.RLock()
+			for uid := range MsgStructs {
+				select {
+				case MsgStructs[uid].Broadcast <- (&msg):
+				default:
+				}
+			}
+			MsgLock.RUnlock()
+
+		default:
+			time.Sleep(time.Millisecond * 10)
+		}
+
+	}
 }
 
 // WatchAlerts Function
@@ -440,29 +458,48 @@ func (lc *LogClient) WatchAlerts() error {
 			break
 		}
 
-		alert := pb.Alert{}
-
-		if err := kl.Clone(*res, &alert); err != nil {
-			kg.Warnf("Failed to clone an alert (%v)", *res)
-			continue
+		select {
+		case AlertBufferChannel <- res:
+		default:
 		}
 
-		tel, _ := json.Marshal(alert)
-		fmt.Printf("%s\n", string(tel))
-
-		AlertLock.RLock()
-		for uid := range AlertStructs {
-			select {
-			case AlertStructs[uid].Broadcast <- (&alert):
-			default:
-			}
-		}
-		AlertLock.RUnlock()
 	}
 
 	kg.Print("Stopped watching alerts from " + lc.Server)
 
 	return nil
+}
+
+// AddAlertFromBuffChan Adds ALert from AlertBufferChannel into AlertStructs
+func (rs *RelayServer) AddAlertFromBuffChan() {
+
+	for Running {
+		select {
+		case res := <-AlertBufferChannel:
+			alert := pb.Alert{}
+
+			if err := kl.Clone(*res, &alert); err != nil {
+				kg.Warnf("Failed to clone an alert (%v)", *res)
+				continue
+			}
+			if stdoutalerts {
+				tel, _ := json.Marshal(alert)
+				fmt.Printf("%s\n", string(tel))
+			}
+			AlertLock.RLock()
+			for uid := range AlertStructs {
+				select {
+				case AlertStructs[uid].Broadcast <- (&alert):
+				default:
+				}
+			}
+			AlertLock.RUnlock()
+
+		default:
+			time.Sleep(time.Millisecond * 10)
+		}
+
+	}
 }
 
 // WatchLogs Function
@@ -480,23 +517,11 @@ func (lc *LogClient) WatchLogs() error {
 			break
 		}
 
-		log := pb.Log{}
-
-		if err := kl.Clone(*res, &log); err != nil {
-			kg.Warnf("Failed to clone a log (%v)", *res)
+		select {
+		case LogBufferChannel <- res:
+		default:
+			//not able to add it to Log buffer
 		}
-
-		tel, _ := json.Marshal(log)
-		fmt.Printf("%s\n", string(tel))
-
-		LogLock.RLock()
-		for uid := range LogStructs {
-			select {
-			case LogStructs[uid].Broadcast <- (&log):
-			default:
-			}
-		}
-		LogLock.RUnlock()
 	}
 
 	kg.Print("Stopped watching logs from " + lc.Server)
@@ -504,15 +529,40 @@ func (lc *LogClient) WatchLogs() error {
 	return nil
 }
 
+// AddLogFromBuffChan Adds Log from LogBufferChannel into LogStructs
+func (rs *RelayServer) AddLogFromBuffChan() {
+
+	for Running {
+		select {
+		case res := <-LogBufferChannel:
+			log := pb.Log{}
+			if err := kl.Clone(*res, &log); err != nil {
+				kg.Warnf("Failed to clone a log (%v)", *res)
+			}
+			if stdoutlogs {
+				tel, _ := json.Marshal(log)
+				fmt.Printf("%s\n", string(tel))
+			}
+			for uid := range LogStructs {
+				select {
+				case LogStructs[uid].Broadcast <- (&log):
+				default:
+				}
+			}
+		default:
+			time.Sleep(time.Millisecond * 10)
+		}
+
+	}
+}
+
 // DestroyClient Function
 func (lc *LogClient) DestroyClient() error {
 	lc.Running = false
 
-	if err := lc.conn.Close(); err != nil {
-		return err
-	}
+	err := lc.conn.Close()
 
-	return nil
+	return err
 }
 
 // ================== //
@@ -534,11 +584,24 @@ type RelayServer struct {
 	WgServer sync.WaitGroup
 }
 
+// LogBufferChannel store incoming data from log stream in buffer
+var LogBufferChannel chan *pb.Log
+
+// MsgBufferChannel store incoming data from Alert stream in buffer
+var MsgBufferChannel chan *pb.Message
+
+// AlertBufferChannel store incoming data from msg stream in buffer
+var AlertBufferChannel chan *pb.Alert
+
 // NewRelayServer Function
 func NewRelayServer(port string) *RelayServer {
 	rs := &RelayServer{}
 
 	rs.Port = port
+
+	LogBufferChannel = make(chan *pb.Log, 10000)
+	AlertBufferChannel = make(chan *pb.Alert, 1000)
+	MsgBufferChannel = make(chan *pb.Message, 100)
 
 	// listen to gRPC port
 	listener, err := net.Listen("tcp", ":"+rs.Port)
@@ -619,8 +682,7 @@ func (rs *RelayServer) ServeLogFeeds() {
 	}
 }
 
-// Remove nodeIP from ClientList
-
+// DeleteClientEntry removes nodeIP from ClientList
 func DeleteClientEntry(nodeIP string) {
 	ClientListLock.Lock()
 	defer ClientListLock.Unlock()
@@ -688,6 +750,10 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 
 	rs.WgServer.Add(1)
 	defer rs.WgServer.Done()
+
+	go rs.AddMsgFromBuffChan()
+	go rs.AddAlertFromBuffChan()
+	go rs.AddLogFromBuffChan()
 
 	if K8s.InitK8sClient() {
 		kg.Print("Initialized the Kubernetes client")

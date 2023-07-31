@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2021 Authors of KubeArmor
 
+// Package server exports kubearmor logs
 package server
 
 import (
@@ -14,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
@@ -48,6 +50,10 @@ type K8sHandler struct {
 	K8sPort  string
 }
 
+var stdoutlogs = false
+var stdoutalerts = false
+var stdoutmsg = false
+
 // NewK8sHandler Function
 func NewK8sHandler() *K8sHandler {
 	kh := &K8sHandler{}
@@ -62,6 +68,28 @@ func NewK8sHandler() *K8sHandler {
 		kh.K8sPort = val
 	} else {
 		kh.K8sPort = "8001" // kube-proxy
+	}
+
+	//Enable printing logs
+	if val, ok := os.LookupEnv("ENABLE_STDOUT_LOGS"); ok {
+		ValueLower := strings.ToLower(val)
+		if ValueLower == "true" {
+			stdoutlogs = true
+		}
+	}
+	//Enable printing Alerts
+	if val, ok := os.LookupEnv("ENABLE_STDOUT_ALERTS"); ok {
+		ValueLower := strings.ToLower(val)
+		if ValueLower == "true" {
+			stdoutalerts = true
+		}
+	}
+	//Enable printing MSgs
+	if val, ok := os.LookupEnv("ENABLE_STDOUT_MSGS"); ok {
+		ValueLower := strings.ToLower(val)
+		if ValueLower == "true" {
+			stdoutmsg = true
+		}
 	}
 
 	kh.HTTPClient = &http.Client{
