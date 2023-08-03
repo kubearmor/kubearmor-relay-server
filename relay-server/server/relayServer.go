@@ -616,8 +616,7 @@ func NewRelayServer(port string) *RelayServer {
 	}
 
 	kasp := keepalive.ServerParameters{
-		Time:    1 * time.Second,
-		Timeout: 1 * time.Second,
+		Time: 5 * time.Second,
 	}
 
 	// create a log server
