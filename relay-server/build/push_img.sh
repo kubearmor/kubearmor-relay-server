@@ -13,7 +13,7 @@ if [ ! -z $1 ]; then
 fi
 
 echo "[INFO] Pushing $REPO:$VERSION"
-docker buildx build --platform $PLATFORMS --push -t $REPO:$VERSION -f $BASE_DIR/relay-server/Dockerfile .
+docker buildx build --metadata-file kubearmor-relay-server.json --platform $PLATFORMS --push -t $REPO:$VERSION -f $BASE_DIR/relay-server/Dockerfile .
 
 if [ $? != 0 ]; then
     echo "[FAILED] Failed to push $REPO:$VERSION"
