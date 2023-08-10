@@ -46,8 +46,8 @@ jobs:
           fi
           ./relay-server/build/push_img.sh $TAG
 
-          - name: Install Cosign 
-          uses: sigstore/cosign-installer@main
+      - name: Install Cosign 
+        uses: sigstore/cosign-installer@main
   
       - name: Get Image Digest
         id: digest
