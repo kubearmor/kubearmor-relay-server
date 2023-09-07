@@ -18,7 +18,7 @@ echo "[INFO] Removed existing $REPO images"
 
 # build image
 echo "[INFO] Building $REPO:$VERSION"
-docker build -t $REPO:$VERSION . -f $BASE_DIR/relay-server/Dockerfile
+docker build --build-arg VERSION=$VERSION -t $REPO:$VERSION . -f $BASE_DIR/relay-server/Dockerfile
 
 if [ $? != 0 ]; then
     echo "[FAILED] Failed to build $REPO:$VERSION"
