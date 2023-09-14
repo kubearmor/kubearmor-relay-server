@@ -12,7 +12,7 @@ run: $(CURDIR)/kubearmor-relay-server build
 
 .PHONY: run-container
 run-container: $(CURDIR)/kubearmor-relay-server build
-	cd $(CURDIR); ./kubearmor-relay-server -k8s=false
+	cd $(CURDIR); sudo ./kubearmor-relay-server -enableReverseLogClient -enablePolicyServer -gRPCPort=32768
 
 .PHONY: build-image
 build-image:
