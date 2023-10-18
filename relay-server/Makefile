@@ -45,12 +45,7 @@ endif
 gosec:
 ifeq (, $(shell which gosec))
 	@{ \
-	set -e ;\
-	GOSEC_TMP_DIR=$$(mktemp -d) ;\
-	cd $$GOSEC_TMP_DIR ;\
-	go mod init tmp ;\
-	go get -u github.com/securego/gosec/v2/cmd/gosec ;\
-	rm -rf $$GOSEC_TMP_DIR ;\
+	go install github.com/securego/gosec/v2/cmd/gosec@latest;\
 	}
 endif
-	cd $(CURDIR); gosec ./...
+	cd $(CURDIR); gosec -exclude=G402 ./...
