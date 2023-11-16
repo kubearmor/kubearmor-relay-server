@@ -4,13 +4,13 @@
 package main
 
 import (
-	"flag"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/elasticsearch"
 
+	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
 )
@@ -49,8 +49,10 @@ func main() {
 	// == //
 
 	// get arguments
-	gRPCPortPtr := flag.String("gRPCPort", "32767", "gRPC port")
-	flag.Parse()
+	if err := cfg.LoadConfig(); err != nil {
+		kg.Err(err.Error())
+		return
+	}
 
 	//get env
 	enableEsDashboards := os.Getenv("ENABLE_DASHBOARDS")
@@ -63,12 +65,12 @@ func main() {
 	// == //
 
 	// create a relay server
-	relayServer := server.NewRelayServer(*gRPCPortPtr)
+	relayServer := server.NewRelayServer(cfg.GlobalConfig.GRPC)
 	if relayServer == nil {
-		kg.Warnf("Failed to create a relay server (:%s)", *gRPCPortPtr)
+		kg.Warnf("Failed to create a relay server (:%s)", cfg.GlobalConfig.GRPC)
 		return
 	}
-	kg.Printf("Created a relay server (:%s)", *gRPCPortPtr)
+	kg.Printf("Created a relay server (:%s)", cfg.GlobalConfig.GRPC)
 
 	// serve log feeds (to clients)
 	go relayServer.ServeLogFeeds()

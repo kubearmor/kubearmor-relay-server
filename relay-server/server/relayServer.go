@@ -6,10 +6,14 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -17,10 +21,12 @@ import (
 	pb "github.com/kubearmor/KubeArmor/protobuf"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
 	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
+	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 )
 
@@ -296,6 +302,31 @@ type LogClient struct {
 	WgServer sync.WaitGroup
 }
 
+func loadTLSCredentials() (credentials.TransportCredentials, error) {
+	// Load certificate of the CA who signed server's certificate
+	certPath := filepath.Join(cfg.GlobalConfig.TLSCertPath, "ca.crt")
+	if _, err := os.Stat(filepath.Clean(certPath)); err != nil {
+		kg.Warnf("Failed to read (%s) Error: %s", certPath, err.Error())
+		return nil, err
+	}
+	pemServerCA, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil, err
+	}
+
+	certPool := x509.NewCertPool()
+	if !certPool.AppendCertsFromPEM(pemServerCA) {
+		return nil, fmt.Errorf("failed to add server CA's certificate")
+	}
+
+	// Create the credentials and return it
+	config := &tls.Config{
+		RootCAs: certPool,
+	}
+
+	return credentials.NewTLS(config), nil
+}
+
 // NewClient Function
 func NewClient(server string) *LogClient {
 	var err error
@@ -307,8 +338,21 @@ func NewClient(server string) *LogClient {
 	// == //
 
 	lc.Server = server
+	var creds credentials.TransportCredentials
+	if cfg.GlobalConfig.TLSEnabled {
+		creds, err = loadTLSCredentials()
+		if err != nil {
+			kg.Errf("cannot load TLS credentials: ", err)
+			return nil
+		}
+	} else {
+		tlsCredentials := &tls.Config{
+			InsecureSkipVerify: true,
+		}
+		creds = credentials.NewTLS(tlsCredentials)
+	}
 
-	lc.conn, err = grpc.Dial(lc.Server, grpc.WithInsecure())
+	lc.conn, err = grpc.Dial(lc.Server, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		kg.Warnf("Failed to connect to KubeArmor's gRPC service (%s)", server)
 		return nil
@@ -403,6 +447,7 @@ func (lc *LogClient) WatchMessages() error {
 		select {
 		case MsgBufferChannel <- res:
 		default:
+			kg.Warn("WatchMessages(): not able to add it to Message buffer")
 		}
 	}
 
@@ -432,6 +477,7 @@ func (rs *RelayServer) AddMsgFromBuffChan() {
 				select {
 				case MsgStructs[uid].Broadcast <- (&msg):
 				default:
+					kg.Warn("AddMsgFromBuffChan(): not able to add it to Message buffer")
 				}
 			}
 			MsgLock.RUnlock()
@@ -461,6 +507,7 @@ func (lc *LogClient) WatchAlerts() error {
 		select {
 		case AlertBufferChannel <- res:
 		default:
+			kg.Warn("WatchAlerts(): not able to add it to Alerts buffer")
 		}
 
 	}
@@ -491,6 +538,7 @@ func (rs *RelayServer) AddAlertFromBuffChan() {
 				select {
 				case AlertStructs[uid].Broadcast <- (&alert):
 				default:
+					kg.Warn("AddAlertFromBuffChan(): not able to add it to Alert buffer")
 				}
 			}
 			AlertLock.RUnlock()
@@ -520,6 +568,7 @@ func (lc *LogClient) WatchLogs() error {
 		select {
 		case LogBufferChannel <- res:
 		default:
+			kg.Warn("WatchLogs(): not able to add it to Log buffer")
 			//not able to add it to Log buffer
 		}
 	}
@@ -547,6 +596,7 @@ func (rs *RelayServer) AddLogFromBuffChan() {
 				select {
 				case LogStructs[uid].Broadcast <- (&log):
 				default:
+					kg.Warn("AddLogFromBuffChan(): not able to add it to Log buffer")
 				}
 			}
 		default:
@@ -759,7 +809,6 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 
 		for Running {
 			newNodes := K8s.GetKubeArmorNodes()
-
 			for _, nodeIP := range newNodes {
 				ClientListLock.Lock()
 				if _, ok := ClientList[nodeIP]; !ok {

@@ -13,13 +13,11 @@ require (
 	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/dustin/go-humanize v1.0.1
 	github.com/elastic/go-elasticsearch/v7 v7.17.7
-	github.com/google/uuid v1.3.0
+	github.com/google/uuid v1.3.1
 	github.com/kubearmor/KubeArmor/protobuf v0.0.0-20230426155201-4a0d0af2a5d6
-	go.uber.org/zap v1.19.0
-	golang.org/x/net v0.9.0 // indirect
-	golang.org/x/sys v0.8.0 // indirect
-	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
-	google.golang.org/grpc v1.55.0
+	github.com/spf13/viper v1.17.0
+	go.uber.org/zap v1.21.0
+	google.golang.org/grpc v1.58.2
 	k8s.io/apimachinery v0.21.1
 	k8s.io/client-go v0.21.1
 )
