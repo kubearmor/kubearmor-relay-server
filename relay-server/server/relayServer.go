@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -595,6 +596,13 @@ var AlertBufferChannel chan *pb.Alert
 
 // NewRelayServer Function
 func NewRelayServer(port string) *RelayServer {
+
+	if os.Getenv("PRINT_TO_STDOUT") == "1" {
+		stdoutalerts = true
+		stdoutlogs = true
+		stdoutmsg = true
+	}
+
 	rs := &RelayServer{}
 
 	rs.Port = port
