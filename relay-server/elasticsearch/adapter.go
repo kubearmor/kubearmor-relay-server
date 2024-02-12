@@ -33,6 +33,7 @@ type ElasticsearchClient struct {
 	bulkIndexer esutil.BulkIndexer
 	ctx         context.Context
 	alertCh     chan interface{}
+	logCh       chan interface{}
 }
 
 // NewElasticsearchClient creates a new Elasticsearch client with the given Elasticsearch URL
@@ -146,6 +147,36 @@ func (ecl *ElasticsearchClient) Start() error {
 					ecl.bulkIndex(alert, "alert")
 				case <-ecl.ctx.Done():
 					close(ecl.alertCh)
+					return
+				}
+			}
+		}()
+	}
+
+	client.WgServer.Add(1)
+	go func() {
+		defer client.WgServer.Done()
+		for client.Running {
+			res, err := client.LogStream.Recv()
+			if err != nil {
+				kg.Warnf("Failed to receive an log (%s)", client.Server)
+				break
+			}
+			tel, _ := json.Marshal(res)
+			fmt.Printf("%s\n", string(tel))
+			ecl.logCh <- res
+		}
+	}()
+
+	for i := 0; i < 5; i++ {
+		go func() {
+			for {
+				select {
+				case log := <-ecl.logCh:
+					ecl.bulkIndex(log, "log")
+					kg.Print("recieved log and indexed")
+				case <-ecl.ctx.Done():
+					close(ecl.logCh)
 					return
 				}
 			}
