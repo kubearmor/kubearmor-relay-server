@@ -70,8 +70,9 @@ func NewElasticsearchClient(esURL, Endpoint string) (*ElasticsearchClient, error
 		log.Fatalf("Error creating the indexer: %s", err)
 	}
 	alertCh := make(chan interface{}, 10000)
+	logCh := make(chan interface{}, 10000)
 	kaClient := server.NewClient(Endpoint)
-	return &ElasticsearchClient{kaClient: kaClient, bulkIndexer: bi, esClient: esClient, alertCh: alertCh}, nil
+	return &ElasticsearchClient{kaClient: kaClient, bulkIndexer: bi, esClient: esClient, alertCh: alertCh, logCh: logCh}, nil
 }
 
 // bulkIndex takes an interface and index name and adds the data to the Elasticsearch bulk indexer.
@@ -174,7 +175,7 @@ func (ecl *ElasticsearchClient) Start() error {
 				select {
 				case log := <-ecl.logCh:
 					ecl.bulkIndex(log, "log")
-					kg.Print("recieved log and indexed")
+					kg.Print("received log and indexed")
 				case <-ecl.ctx.Done():
 					close(ecl.logCh)
 					return
