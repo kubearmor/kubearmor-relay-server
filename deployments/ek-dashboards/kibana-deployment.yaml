@@ -4,7 +4,7 @@ metadata:
   name: kibana
   labels:
     app: kibana
-  namespace: kube-system
+  namespace: kubearmor
 spec:
   replicas: 1
   selector:

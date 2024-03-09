@@ -1,8 +1,8 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: kubearmor
-  namespace: default
+  name: relay-test
+  namespace: kubearmor
 spec:
   selector:
     kubearmor-app: kubearmor-relay
@@ -13,8 +13,8 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kubearmor-relay
-  namespace: default
+  name: test-relay
+  namespace: kubearmor
   labels:
     kubearmor-app: kubearmor-relay
 spec:
@@ -32,7 +32,7 @@ spec:
       serviceAccountName: kubearmor
       containers:
       - name: kubearmor-relay-server
-        image: kubearmor/kubearmor-relay-server:latest
+        image: harisudarsan/relay-server:latest
         env:
           - name: ENABLE_DASHBOARDS
             value: "true"
