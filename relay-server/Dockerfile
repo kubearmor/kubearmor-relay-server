@@ -10,6 +10,9 @@ WORKDIR /usr/src/kubearmor-relay-server
 COPY . .
 
 RUN cd relay-server && make
+RUN GRPC_HEALTH_PROBE_VERSION=v0.4.15 && \
+    wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 && \
+    chmod +x /bin/grpc_health_probe
 
 ### Copy executable image
 
@@ -34,6 +37,7 @@ RUN groupadd --gid 1000 default \
 
 COPY LICENSE /licenses/license.txt
 COPY --from=builder /usr/src/kubearmor-relay-server/relay-server/kubearmor-relay-server /KubeArmor/kubearmor-relay-server
+COPY --from=builder /bin/grpc_health_probe ./grpc_health_probe
 
 USER default
 
