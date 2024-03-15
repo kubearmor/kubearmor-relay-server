@@ -17,10 +17,13 @@ import (
 	pb "github.com/kubearmor/KubeArmor/protobuf"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
 	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
+	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 )
 
@@ -307,8 +310,18 @@ func NewClient(server string) *LogClient {
 	// == //
 
 	lc.Server = server
+	var creds credentials.TransportCredentials
+	if cfg.GlobalConfig.TLSEnabled {
+		creds, err = loadTLSClientCredentials()
+		if err != nil {
+			kg.Errf("cannot load TLS credentials: ", err)
+			return nil
+		}
+	} else {
+		creds = insecure.NewCredentials()
+	}
 
-	lc.conn, err = grpc.Dial(lc.Server, grpc.WithInsecure())
+	lc.conn, err = grpc.Dial(lc.Server, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		kg.Warnf("Failed to connect to KubeArmor's gRPC service (%s)", server)
 		return nil
@@ -620,7 +633,17 @@ func NewRelayServer(port string) *RelayServer {
 	}
 
 	// create a log server
-	rs.LogServer = grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
+	var creds credentials.TransportCredentials
+	if cfg.GlobalConfig.TLSEnabled {
+		creds, err = loadTLSServerCredentials()
+		if err != nil {
+			kg.Errf("cannot load TLS credentials: ", err)
+			return nil
+		}
+		rs.LogServer = grpc.NewServer(grpc.Creds(creds), grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
+	} else {
+		rs.LogServer = grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
+	}
 
 	// register a log service
 	logService := &LogService{}
@@ -759,7 +782,6 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 
 		for Running {
 			newNodes := K8s.GetKubeArmorNodes()
-
 			for _, nodeIP := range newNodes {
 				ClientListLock.Lock()
 				if _, ok := ClientList[nodeIP]; !ok {
