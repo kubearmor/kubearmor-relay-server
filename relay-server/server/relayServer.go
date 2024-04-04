@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	pb "github.com/kubearmor/KubeArmor/protobuf"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -296,7 +297,9 @@ type LogClient struct {
 	LogStream pb.LogService_WatchLogsClient
 
 	// wait group
-	WgServer sync.WaitGroup
+	WgServer *errgroup.Group
+
+	Context context.Context
 }
 
 // NewClient Function
@@ -369,11 +372,10 @@ func NewClient(server string) *LogClient {
 		kg.Warnf("Failed to call WatchLogs (%s)\n err=%s", server, err.Error())
 		return nil
 	}
-
 	// == //
 
 	// set wait group
-	lc.WgServer = sync.WaitGroup{}
+	lc.WgServer, lc.Context = errgroup.WithContext(context.Background())
 
 	return lc
 }
@@ -400,9 +402,7 @@ func (lc *LogClient) DoHealthCheck() bool {
 }
 
 // WatchMessages Function
-func (lc *LogClient) WatchMessages() error {
-
-	defer lc.WgServer.Done()
+func (lc *LogClient) WatchMessages(ctx context.Context) error {
 
 	var err error
 
@@ -410,12 +410,16 @@ func (lc *LogClient) WatchMessages() error {
 		var res *pb.Message
 
 		if res, err = lc.MsgStream.Recv(); err != nil {
-			kg.Warnf("Failed to receive a message (%s)", lc.Server)
-			break
+			return fmt.Errorf("failed to receive a message (%s) %s", lc.Server, err.Error())
+
 		}
 		select {
 		case MsgBufferChannel <- res:
+		case <-ctx.Done():
+			// The context is over, stop processing results
+			return nil
 		default:
+			//not able to add it to Log buffer
 		}
 	}
 
@@ -457,9 +461,7 @@ func (rs *RelayServer) AddMsgFromBuffChan() {
 }
 
 // WatchAlerts Function
-func (lc *LogClient) WatchAlerts() error {
-
-	defer lc.WgServer.Done()
+func (lc *LogClient) WatchAlerts(ctx context.Context) error {
 
 	var err error
 
@@ -467,15 +469,17 @@ func (lc *LogClient) WatchAlerts() error {
 		var res *pb.Alert
 
 		if res, err = lc.AlertStream.Recv(); err != nil {
-			kg.Warnf("Failed to receive an alert (%s)", lc.Server)
-			break
+			return fmt.Errorf("failed to receive a alert (%s) %s", lc.Server, err.Error())
 		}
 
 		select {
 		case AlertBufferChannel <- res:
+		case <-ctx.Done():
+			// The context is over, stop processing results
+			return nil
 		default:
+			//not able to add it to Log buffer
 		}
-
 	}
 
 	kg.Print("Stopped watching alerts from " + lc.Server)
@@ -516,9 +520,7 @@ func (rs *RelayServer) AddAlertFromBuffChan() {
 }
 
 // WatchLogs Function
-func (lc *LogClient) WatchLogs() error {
-
-	defer lc.WgServer.Done()
+func (lc *LogClient) WatchLogs(ctx context.Context) error {
 
 	var err error
 
@@ -526,12 +528,14 @@ func (lc *LogClient) WatchLogs() error {
 		var res *pb.Log
 
 		if res, err = lc.LogStream.Recv(); err != nil {
-			kg.Warnf("Failed to receive a log (%s)", lc.Server)
-			break
+			return fmt.Errorf("failed to receive a log (%s) %s", lc.Server, err.Error())
 		}
 
 		select {
 		case LogBufferChannel <- res:
+		case <-ctx.Done():
+			// The context is over, stop processing results
+			return nil
 		default:
 			//not able to add it to Log buffer
 		}
@@ -740,27 +744,30 @@ func connectToKubeArmor(nodeIP, port string) error {
 	}
 	kg.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", server)
 
-	client.WgServer.Add(1)
 	// watch messages
-	go client.WatchMessages()
+	client.WgServer.Go(func() error {
+		return client.WatchMessages(client.Context)
+	})
 	kg.Print("Started to watch messages from " + server)
 
-	client.WgServer.Add(1)
 	// watch alerts
-	go client.WatchAlerts()
+	client.WgServer.Go(func() error {
+		return client.WatchAlerts(client.Context)
+	})
 	kg.Print("Started to watch alerts from " + server)
 
-	client.WgServer.Add(1)
 	// watch logs
-	go client.WatchLogs()
+	client.WgServer.Go(func() error {
+		return client.WatchLogs(client.Context)
+	})
 	kg.Print("Started to watch logs from " + server)
 
-	time.Sleep(time.Second * 1)
-	// wait for other routines
-	client.WgServer.Wait()
+	if err := client.WgServer.Wait(); err != nil {
+		kg.Warn(err.Error())
+	}
 
 	if err := client.DestroyClient(); err != nil {
-		kg.Warnf("Failed to destroy the client (%s)", server)
+		kg.Warnf("Failed to destroy the client (%s) %s", server, err.Error())
 	}
 	kg.Printf("Destroyed the client (%s)", server)
 
