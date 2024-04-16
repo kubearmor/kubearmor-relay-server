@@ -17,7 +17,7 @@ jobs:
   push-docker-img:
     name: Create and push docker image
     if: github.repository == 'kubearmor/kubearmor-relay-server'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-16-cores
     permissions:
       id-token: write 
     timeout-minutes: 20
