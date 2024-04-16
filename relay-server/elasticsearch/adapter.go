@@ -123,20 +123,26 @@ func (ecl *ElasticsearchClient) Start() error {
 	}
 	kg.Printf("Checked the liveness of the gRPC server")
 
-	client.WgServer.Add(1)
-	go func() {
-		defer client.WgServer.Done()
+	client.WgServer.Go(func() error {
 		for client.Running {
 			res, err := client.AlertStream.Recv()
 			if err != nil {
-				kg.Warnf("Failed to receive an alert (%s)", client.Server)
-				break
+				return fmt.Errorf("failed to receive an alert (%s) %s", client.Server, err)
 			}
 			tel, _ := json.Marshal(res)
 			fmt.Printf("%s\n", string(tel))
-			ecl.alertCh <- res
+
+			select {
+			case ecl.alertCh <- res:
+			case <-client.Context.Done():
+				// The context is over, stop processing results
+				return nil
+			default:
+				//not able to add it to Log buffer
+			}
 		}
-	}()
+		return nil
+	})
 
 	for i := 0; i < 5; i++ {
 		go func() {
