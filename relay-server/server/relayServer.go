@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 
 	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
 	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
+	kif "github.com/kubearmor/kubearmor-relay-server/relay-server/informers"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 )
 
@@ -296,6 +298,9 @@ type LogClient struct {
 	// logs
 	LogStream pb.LogService_WatchLogsClient
 
+	//Informerclient
+	Ifclient *kif.Client
+
 	// wait group
 	WgServer *errgroup.Group
 
@@ -372,6 +377,12 @@ func NewClient(server string) *LogClient {
 		kg.Warnf("Failed to call WatchLogs (%s)\n err=%s", server, err.Error())
 		return nil
 	}
+
+	// start informers
+	Informerclient := kif.InitializeClient()
+	go kif.StartInformers(Informerclient)
+
+	lc.Ifclient = Informerclient
 
 	return lc
 }
@@ -540,6 +551,36 @@ func (lc *LogClient) WatchLogs(wg *sync.WaitGroup, stop chan struct{}, errCh cha
 		default:
 			if res, err = lc.LogStream.Recv(); err != nil {
 				errCh <- fmt.Errorf("failed to receive a log (%s) %s", lc.Server, err.Error())
+
+				if containsKprobe := strings.Contains(res.Data, "kprobe"); containsKprobe && res.GetOperation() == "Network" {
+
+					resourceMap := kl.Extractdata(res.GetResource())
+					remoteIP := resourceMap["remoteip"]
+					podserviceInfo, found := lc.Ifclient.ClusterIPCache.Get(remoteIP)
+
+					if found {
+						switch podserviceInfo.Type {
+						case "POD":
+							resource := res.GetResource() + fmt.Sprintf(" hostname=%s podname=%s namespace=%s", podserviceInfo.DeploymentName, podserviceInfo.PodName, podserviceInfo.NamespaceName)
+							data := res.GetData() + fmt.Sprintf(" ownertype=pod")
+							res.Data = data
+
+							res.Resource = resource
+							// kg.Printf("logData:%s", res.Data)
+							break
+						case "SERVICE":
+							resource := res.GetResource() + fmt.Sprintf(" hostname=%s servicename=%s namespace=%s", podserviceInfo.DeploymentName, podserviceInfo.ServiceName, podserviceInfo.NamespaceName)
+
+							data := res.GetData() + fmt.Sprintf(" ownertype=service")
+							res.Data = data
+							res.Resource = resource
+							// kg.Printf("logData:%s", res.Data)
+
+							break
+						}
+					}
+
+				}
 				return
 			}
 
@@ -814,6 +855,7 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 	go rs.AddLogFromBuffChan()
 
 	if K8s.InitK8sClient() {
+
 		kg.Print("Initialized the Kubernetes client")
 
 		for Running {

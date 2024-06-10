@@ -16,6 +16,10 @@ import (
 	"github.com/elastic/go-elasticsearch/v7/esutil"
 	"github.com/google/uuid"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
+
+	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
+
+	// kif "github.com/kubearmor/kubearmor-relay-server/relay-server/informers"
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
 )
 
@@ -33,6 +37,8 @@ type ElasticsearchClient struct {
 	bulkIndexer esutil.BulkIndexer
 	ctx         context.Context
 	alertCh     chan interface{}
+	logCh       chan interface{}
+	// client      *kif.Client
 }
 
 // NewElasticsearchClient creates a new Elasticsearch client with the given Elasticsearch URL
@@ -69,8 +75,26 @@ func NewElasticsearchClient(esURL, Endpoint string) (*ElasticsearchClient, error
 		log.Fatalf("Error creating the indexer: %s", err)
 	}
 	alertCh := make(chan interface{}, 10000)
+	logCh := make(chan interface{}, 10000)
 	kaClient := server.NewClient(Endpoint)
-	return &ElasticsearchClient{kaClient: kaClient, bulkIndexer: bi, esClient: esClient, alertCh: alertCh}, nil
+
+	// k8sClient := kif.GetK8sClient()
+	// cc := &kif.ClusterCache{
+	//
+	// 	mu: &sync.RWMutex{},
+	//
+	// 	ipPodCache: make(map[string]PodServiceInfo),
+	// }
+	// client := &kif.Client{
+	// 	k8sClient:      k8sClient,
+	// 	ClusterIPCache: cc,
+	// }
+
+	// client := kif.InitializeClient()
+	// go kif.StartInformers(client)
+
+	// TODO: remove this informers
+	return &ElasticsearchClient{kaClient: kaClient, bulkIndexer: bi, esClient: esClient, alertCh: alertCh, logCh: logCh}, nil
 }
 
 // bulkIndex takes an interface and index name and adds the data to the Elasticsearch bulk indexer.
@@ -152,6 +176,64 @@ func (ecl *ElasticsearchClient) Start() error {
 					ecl.bulkIndex(alert, "alert")
 				case <-ecl.ctx.Done():
 					close(ecl.alertCh)
+					return
+				}
+			}
+		}()
+	}
+
+	client.WgServer.Go(func() error {
+		for client.Running {
+			res, err := client.LogStream.Recv()
+			if err != nil {
+				kg.Warnf("Failed to receive an log (%s)", client.Server)
+				break
+			}
+
+			if containsKprobe := strings.Contains(res.Data, "kprobe"); containsKprobe {
+
+				resourceMap := kl.Extractdata(res.GetResource())
+				remoteIP := resourceMap["remoteip"]
+				podserviceInfo, found := ecl.kaClient.Ifclient.ClusterIPCache.Get(remoteIP)
+
+				if found {
+					switch podserviceInfo.Type {
+					case "POD":
+						resource := res.GetResource() + fmt.Sprintf(" hostname=%s podname=%s namespace=%s", podserviceInfo.DeploymentName, podserviceInfo.PodName, podserviceInfo.NamespaceName)
+						data := res.GetData() + fmt.Sprintf(" ownertype=pod")
+						res.Data = data
+
+						res.Resource = resource
+						// kg.Printf("logData:%s", res.Data)
+						break
+					case "SERVICE":
+						resource := res.GetResource() + fmt.Sprintf(" hostname=%s servicename=%s namespace=%s", podserviceInfo.DeploymentName, podserviceInfo.ServiceName, podserviceInfo.NamespaceName)
+
+						data := res.GetData() + fmt.Sprintf(" ownertype=service")
+						res.Data = data
+						res.Resource = resource
+						// kg.Printf("logData:%s", res.Data)
+
+						break
+					}
+				}
+
+			}
+			tel, _ := json.Marshal(res)
+			fmt.Printf("%s\n", string(tel))
+			ecl.logCh <- res
+		}
+		return nil
+	})
+
+	for i := 0; i < 5; i++ {
+		go func() {
+			for {
+				select {
+				case log := <-ecl.logCh:
+					ecl.bulkIndex(log, "log")
+				case <-ecl.ctx.Done():
+					close(ecl.logCh)
 					return
 				}
 			}
