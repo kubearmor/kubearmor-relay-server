@@ -14,16 +14,20 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
+	"sync"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
 
 	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	rest "k8s.io/client-go/rest"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -228,52 +232,65 @@ func (kh *K8sHandler) DoRequest(cmd string, data interface{}, path string) ([]by
 	return resBody, nil
 }
 
-// ========== //
-// == Pods == //
-// ========== //
+func (kh *K8sHandler) WatchKubeArmorPods(ctx context.Context, wg *sync.WaitGroup, ipsChan chan string) {
+	defer func() {
+		close(ipsChan)
+		wg.Done()
+	}()
 
-func containsElement(slice interface{}, element interface{}) bool {
-	switch reflect.TypeOf(slice).Kind() {
-	case reflect.Slice:
-		s := reflect.ValueOf(slice)
+	// Get the KubeArmor pods IP that were added before relay itself.
+	once := sync.Once{}
+	once.Do(func() {
+		kh.findExistingKaPodsIp(ctx, ipsChan)
+	})
 
-		for i := 0; i < s.Len(); i++ {
-			val := s.Index(i).Interface()
-			if reflect.DeepEqual(val, element) {
-				return true
-			}
-		}
-	}
-	return false
+	podInformer := kh.getKaPodInformer(ipsChan)
+	podInformer.Run(ctx.Done())
 }
 
-// GetKubeArmorNodes Function
-func (kh *K8sHandler) GetKubeArmorNodes() []string {
-	nodeIPs := []string{}
+func (kh *K8sHandler) getKaPodInformer(ipsChan chan string) cache.SharedIndexInformer {
+	option := informers.WithTweakListOptions(func(lo *metav1.ListOptions) {
+		lo.LabelSelector = "kubearmor-app=kubearmor"
+	})
 
-	if !kl.IsK8sEnv() { // not Kubernetes
-		return nodeIPs
-	}
+	factory := informers.NewSharedInformerFactoryWithOptions(kh.K8sClient, 0, option)
+	informer := factory.Core().V1().Pods().Informer()
 
-	pods, err := kh.K8sClient.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{})
+	_, _ = informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			pod, ok := obj.(*corev1.Pod)
+			if ok {
+				if pod.Status.PodIP != "" {
+					ipsChan <- pod.Status.PodIP
+				}
+			}
+		},
+		UpdateFunc: func(old, new interface{}) {
+			newPod, ok := new.(*corev1.Pod)
+			if ok {
+				if newPod.Status.PodIP != "" {
+					ipsChan <- newPod.Status.PodIP
+				}
+			}
+		},
+	})
+
+	return informer
+}
+
+func (kh *K8sHandler) findExistingKaPodsIp(ctx context.Context, ipsChan chan string) {
+	pods, err := kh.K8sClient.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		LabelSelector: "kubearmor-app=kubearmor",
+	})
+
 	if err != nil {
-		return nodeIPs
+		kg.Errf("failed to list KubeArmor pods: %v", err)
+		return
 	}
 
 	for _, pod := range pods.Items {
-		if val, ok := pod.ObjectMeta.Labels["kubearmor-app"]; !ok {
-			continue
-		} else if val != "kubearmor" {
-			continue
-		}
-		if pod.Status.PodIP == "" {
-			kg.Printf("pod.Status=%+v", pod.Status)
-		}
-
-		if pod.Status.PodIP != "" && !containsElement(nodeIPs, pod.Status.PodIP) {
-			nodeIPs = append(nodeIPs, pod.Status.PodIP)
+		if pod.Status.PodIP != "" {
+			ipsChan <- pod.Status.PodIP
 		}
 	}
-
-	return nodeIPs
 }

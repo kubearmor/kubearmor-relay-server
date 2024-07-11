@@ -23,7 +23,6 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
-	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
 	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 )
@@ -434,13 +433,7 @@ func (rs *RelayServer) AddMsgFromBuffChan() {
 
 	for Running {
 		select {
-		case res := <-MsgBufferChannel:
-			msg := pb.Message{}
-
-			if err := kl.Clone(*res, &msg); err != nil {
-				kg.Warnf("Failed to clone a message (%v)", *res)
-				continue
-			}
+		case msg := <-MsgBufferChannel:
 			if stdoutmsg {
 				tel, _ := json.Marshal(msg)
 				fmt.Printf("%s\n", string(tel))
@@ -448,7 +441,7 @@ func (rs *RelayServer) AddMsgFromBuffChan() {
 			MsgLock.RLock()
 			for uid := range MsgStructs {
 				select {
-				case MsgStructs[uid].Broadcast <- (&msg):
+				case MsgStructs[uid].Broadcast <- msg:
 				default:
 				}
 			}
@@ -493,18 +486,12 @@ func (lc *LogClient) WatchAlerts(wg *sync.WaitGroup, stop chan struct{}, errCh c
 	kg.Print("Stopped watching alerts from " + lc.Server)
 }
 
-// AddAlertFromBuffChan Adds ALert from AlertBufferChannel into AlertStructs
+// AddAlertFromBuffChan Adds Alert from AlertBufferChannel into AlertStructs
 func (rs *RelayServer) AddAlertFromBuffChan() {
 
 	for Running {
 		select {
-		case res := <-AlertBufferChannel:
-			alert := pb.Alert{}
-
-			if err := kl.Clone(*res, &alert); err != nil {
-				kg.Warnf("Failed to clone an alert (%v)", *res)
-				continue
-			}
+		case alert := <-AlertBufferChannel:
 			if stdoutalerts {
 				tel, _ := json.Marshal(alert)
 				fmt.Printf("%s\n", string(tel))
@@ -512,7 +499,7 @@ func (rs *RelayServer) AddAlertFromBuffChan() {
 			AlertLock.RLock()
 			for uid := range AlertStructs {
 				select {
-				case AlertStructs[uid].Broadcast <- (&alert):
+				case AlertStructs[uid].Broadcast <- alert:
 				default:
 				}
 			}
@@ -561,18 +548,14 @@ func (rs *RelayServer) AddLogFromBuffChan() {
 
 	for Running {
 		select {
-		case res := <-LogBufferChannel:
-			log := pb.Log{}
-			if err := kl.Clone(*res, &log); err != nil {
-				kg.Warnf("Failed to clone a log (%v)", *res)
-			}
+		case log := <-LogBufferChannel:
 			if stdoutlogs {
 				tel, _ := json.Marshal(log)
 				fmt.Printf("%s\n", string(tel))
 			}
 			for uid := range LogStructs {
 				select {
-				case LogStructs[uid].Broadcast <- (&log):
+				case LogStructs[uid].Broadcast <- log:
 				default:
 				}
 			}
@@ -816,19 +799,27 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 	if K8s.InitK8sClient() {
 		kg.Print("Initialized the Kubernetes client")
 
+		ipsChan := make(chan string)
+		if Running {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			rs.WgServer.Add(1)
+			go K8s.WatchKubeArmorPods(ctx, &rs.WgServer, ipsChan)
+		} else {
+			close(ipsChan)
+		}
+
 		for Running {
-			newNodes := K8s.GetKubeArmorNodes()
-			for _, nodeIP := range newNodes {
+			select {
+			case ip := <-ipsChan:
 				ClientListLock.Lock()
-				if _, ok := ClientList[nodeIP]; !ok {
-					ClientList[nodeIP] = 1
-					go connectToKubeArmor(nodeIP, rs.Port)
+				if _, ok := ClientList[ip]; !ok {
+					ClientList[ip] = 1
+					go connectToKubeArmor(ip, rs.Port)
 				}
 				ClientListLock.Unlock()
 			}
-
-			time.Sleep(time.Second * 1)
+			time.Sleep(10 * time.Second)
 		}
-
 	}
 }
