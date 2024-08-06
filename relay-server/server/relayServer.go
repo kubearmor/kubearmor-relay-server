@@ -10,12 +10,12 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	pb "github.com/kubearmor/KubeArmor/protobuf"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -25,6 +25,7 @@ import (
 
 	kl "github.com/kubearmor/kubearmor-relay-server/relay-server/common"
 	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
+	kif "github.com/kubearmor/kubearmor-relay-server/relay-server/informers"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 )
 
@@ -296,8 +297,8 @@ type LogClient struct {
 	// logs
 	LogStream pb.LogService_WatchLogsClient
 
-	// wait group
-	WgServer *errgroup.Group
+	// // wait group
+	// WgServer sync.WaitGroup
 
 	Context context.Context
 }
@@ -510,6 +511,11 @@ func (rs *RelayServer) AddAlertFromBuffChan() {
 				fmt.Printf("%s\n", string(tel))
 			}
 			AlertLock.RLock()
+
+			if enableEsDashboards {
+				ESAlertChannel <- (&alert)
+			}
+
 			for uid := range AlertStructs {
 				select {
 				case AlertStructs[uid].Broadcast <- (&alert):
@@ -540,7 +546,6 @@ func (lc *LogClient) WatchLogs(wg *sync.WaitGroup, stop chan struct{}, errCh cha
 		default:
 			if res, err = lc.LogStream.Recv(); err != nil {
 				errCh <- fmt.Errorf("failed to receive a log (%s) %s", lc.Server, err.Error())
-				return
 			}
 
 			select {
@@ -566,10 +571,45 @@ func (rs *RelayServer) AddLogFromBuffChan() {
 			if err := kl.Clone(*res, &log); err != nil {
 				kg.Warnf("Failed to clone a log (%v)", *res)
 			}
+
+			if containsKprobe := strings.Contains(log.Data, "kprobe"); containsKprobe && log.GetOperation() == "Network" {
+
+				resourceMap := kl.Extractdata(log.GetResource())
+				remoteIP := resourceMap["remoteip"]
+				podserviceInfo, found := rs.Ifclient.ClusterIPCache.Get(remoteIP)
+
+				if found {
+					switch podserviceInfo.Type {
+					case "POD":
+						resource := log.GetResource() + fmt.Sprintf(" hostname=%s podname=%s namespace=%s", podserviceInfo.DeploymentName, podserviceInfo.PodName, podserviceInfo.NamespaceName)
+						data := log.GetData() + fmt.Sprintf(" ownertype=pod")
+						log.Data = data
+
+						log.Resource = resource
+						kg.Printf("logData:%s", log.Data)
+						break
+					case "SERVICE":
+						resource := log.GetResource() + fmt.Sprintf(" hostname=%s servicename=%s namespace=%s", podserviceInfo.DeploymentName, podserviceInfo.ServiceName, podserviceInfo.NamespaceName)
+
+						data := log.GetData() + fmt.Sprintf(" ownertype=service")
+						log.Data = data
+						log.Resource = resource
+						kg.Printf("logData:%s", log.Data)
+
+						break
+					}
+				}
+
+			}
+
 			if stdoutlogs {
 				tel, _ := json.Marshal(log)
 				fmt.Printf("%s\n", string(tel))
 			}
+			if enableEsDashboards {
+				ESLogChannel <- (&log)
+			}
+
 			for uid := range LogStructs {
 				select {
 				case LogStructs[uid].Broadcast <- (&log):
@@ -609,16 +649,25 @@ type RelayServer struct {
 
 	// wait group
 	WgServer sync.WaitGroup
+
+	//Informerclient
+	Ifclient *kif.Client
 }
 
 // LogBufferChannel store incoming data from log stream in buffer
 var LogBufferChannel chan *pb.Log
+
+// ESLogChannel send logs to ES adapter
+var ESLogChannel chan *pb.Log
 
 // MsgBufferChannel store incoming data from Alert stream in buffer
 var MsgBufferChannel chan *pb.Message
 
 // AlertBufferChannel store incoming data from msg stream in buffer
 var AlertBufferChannel chan *pb.Alert
+
+// ESAlertChannel send alerts to ES adapter
+var ESAlertChannel chan *pb.Alert
 
 // NewRelayServer Function
 func NewRelayServer(port string) *RelayServer {
@@ -629,6 +678,11 @@ func NewRelayServer(port string) *RelayServer {
 	LogBufferChannel = make(chan *pb.Log, 10000)
 	AlertBufferChannel = make(chan *pb.Alert, 1000)
 	MsgBufferChannel = make(chan *pb.Message, 100)
+
+	if enableEsDashboards {
+		ESLogChannel = make(chan *pb.Log, 10000)
+		ESAlertChannel = make(chan *pb.Alert, 1000)
+	}
 
 	// listen to gRPC port
 	listener, err := net.Listen("tcp", ":"+rs.Port)
@@ -674,6 +728,12 @@ func NewRelayServer(port string) *RelayServer {
 	// initialize log structs
 	LogStructs = make(map[string]LogStruct)
 	LogLock = &sync.RWMutex{}
+
+	// start informers
+	Informerclient := kif.InitializeClient()
+	go kif.StartInformers(Informerclient)
+
+	rs.Ifclient = Informerclient
 
 	// set wait group
 	rs.WgServer = sync.WaitGroup{}
@@ -814,6 +874,7 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 	go rs.AddLogFromBuffChan()
 
 	if K8s.InitK8sClient() {
+
 		kg.Print("Initialized the Kubernetes client")
 
 		for Running {

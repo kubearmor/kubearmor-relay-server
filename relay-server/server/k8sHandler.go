@@ -54,6 +54,8 @@ var stdoutlogs = false
 var stdoutalerts = false
 var stdoutmsg = false
 
+var enableEsDashboards = os.Getenv("ENABLE_DASHBOARDS") == "true"
+
 // NewK8sHandler Function
 func NewK8sHandler() *K8sHandler {
 	kh := &K8sHandler{}
