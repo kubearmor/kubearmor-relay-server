@@ -4,20 +4,9 @@
 package common
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 )
-
-// ============ //
-// == Common == //
-// ============ //
-
-// Clone Function
-func Clone(src, dst interface{}) error {
-	arr, _ := json.Marshal(src)
-	return json.Unmarshal(arr, dst)
-}
 
 // ================ //
 // == Kubernetes == //
