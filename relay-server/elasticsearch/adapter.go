@@ -197,17 +197,17 @@ func (ecl *ElasticsearchClient) PrintBulkStats() {
 	if biStats.NumFailed > 0 {
 		fmt.Printf(
 			"Indexed [%s] documents with [%s] errors in %s (%s docs/sec)",
-			humanize.Comma(int64(biStats.NumFlushed)),
-			humanize.Comma(int64(biStats.NumFailed)),
+			humanize.Commaf(float64(biStats.NumFlushed)),
+			humanize.Commaf(float64(biStats.NumFailed)),
 			dur.Truncate(time.Millisecond),
-			humanize.Comma(int64(1000.0/float64(dur/time.Millisecond)*float64(biStats.NumFlushed))),
+			humanize.Commaf(float64(1000.0/float64(dur/time.Millisecond)*float64(biStats.NumFlushed))),
 		)
 	} else {
 		log.Printf(
 			"Sucessfuly indexed [%s] documents in %s (%s docs/sec)",
-			humanize.Comma(int64(biStats.NumFlushed)),
+			humanize.Commaf(float64(biStats.NumFlushed)),
 			dur.Truncate(time.Millisecond),
-			humanize.Comma(int64(1000.0/float64(dur/time.Millisecond)*float64(biStats.NumFlushed))),
+			humanize.Commaf(float64(1000.0/float64(dur/time.Millisecond)*float64(biStats.NumFlushed))),
 		)
 	}
 	println(strings.Repeat("▔", 80))
