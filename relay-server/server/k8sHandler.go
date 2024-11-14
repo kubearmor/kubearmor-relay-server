@@ -259,18 +259,38 @@ func (kh *K8sHandler) getKaPodInformer(ipsChan chan string) cache.SharedIndexInf
 	_, _ = informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod, ok := obj.(*corev1.Pod)
-			if ok {
-				if pod.Status.PodIP != "" {
-					ipsChan <- pod.Status.PodIP
-				}
+			if !ok {
+				return
+			}
+
+			if pod.Status.PodIP != "" {
+				ipsChan <- pod.Status.PodIP
 			}
 		},
 		UpdateFunc: func(old, new interface{}) {
+			oldPod, ok := old.(*corev1.Pod)
+			if !ok {
+				return
+			}
+
 			newPod, ok := new.(*corev1.Pod)
-			if ok {
-				if newPod.Status.PodIP != "" {
-					ipsChan <- newPod.Status.PodIP
-				}
+			if !ok {
+				return
+			}
+
+			if newPod.Status.PodIP != "" && newPod.Status.PodIP != oldPod.Status.PodIP {
+				ipsChan <- newPod.Status.PodIP
+				DeleteClientEntry(oldPod.Status.PodIP)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			pod, ok := obj.(*corev1.Pod)
+			if !ok {
+				return
+			}
+
+			if pod.Status.PodIP != "" {
+				DeleteClientEntry(pod.Status.PodIP)
 			}
 		},
 	})

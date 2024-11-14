@@ -38,13 +38,12 @@ var Running bool
 var ClientList map[string]int
 
 // ClientListLock Lock
-var ClientListLock *sync.Mutex
+var ClientListLock *sync.RWMutex
 
 func init() {
 	Running = true
 	ClientList = map[string]int{}
-	ClientListLock = &sync.Mutex{}
-
+	ClientListLock = &sync.RWMutex{}
 }
 
 // ========== //
@@ -706,11 +705,7 @@ func DeleteClientEntry(nodeIP string) {
 	ClientListLock.Lock()
 	defer ClientListLock.Unlock()
 
-	_, exists := ClientList[nodeIP]
-
-	if exists {
-		delete(ClientList, nodeIP)
-	}
+	delete(ClientList, nodeIP)
 }
 
 // =============== //
@@ -722,66 +717,72 @@ func connectToKubeArmor(nodeIP, port string) error {
 	// create connection info
 	server := nodeIP + ":" + port
 
-	defer DeleteClientEntry(nodeIP)
+	for Running {
+		ClientListLock.RLock()
+		_, found := ClientList[nodeIP]
+		ClientListLock.RUnlock()
+		if !found {
+			// KubeArmor with this IP is deleted or the IP has changed
+			// parent function will spawn a new goroutine accordingly
+			break
+		}
 
-	// create a client
-	client := NewClient(server)
-	if client == nil {
-		return nil
+		// create a client
+		client := NewClient(server)
+		if client == nil {
+			time.Sleep(5 * time.Second) // wait for 5 second before retrying
+			continue
+		}
+
+		// do healthcheck
+		if ok := client.DoHealthCheck(); !ok {
+			kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", server)
+			time.Sleep(5 * time.Second) // wait for 5 second before retrying
+			continue
+		}
+		kg.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", server)
+
+		var wg sync.WaitGroup
+		stop := make(chan struct{})
+		errCh := make(chan error, 1)
+
+		// Start watching messages
+		wg.Add(1)
+		go client.WatchMessages(&wg, stop, errCh)
+		kg.Print("Started to watch messages from " + server)
+
+		// Start watching alerts
+		wg.Add(1)
+		go client.WatchAlerts(&wg, stop, errCh)
+		kg.Print("Started to watch alerts from " + server)
+
+		// Start watching logs
+		wg.Add(1)
+		go client.WatchLogs(&wg, stop, errCh)
+		kg.Print("Started to watch logs from " + server)
+
+		// Wait for an error or all goroutines to finish
+		select {
+		case err := <-errCh:
+			close(stop) // Stop other goroutines
+			kg.Warn(err.Error())
+		case <-func() chan struct{} {
+			done := make(chan struct{})
+			go func() {
+				wg.Wait()
+				close(done)
+			}()
+			return done
+		}():
+			// All goroutines finished without error
+		}
+
+		if err := client.DestroyClient(); err != nil {
+			kg.Warnf("Failed to destroy the client (%s) %s", server, err.Error())
+		}
+
+		kg.Printf("Destroyed the client (%s)", server)
 	}
-
-	// do healthcheck
-	if ok := client.DoHealthCheck(); !ok {
-		kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", server)
-		return nil
-	}
-	kg.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", server)
-
-	var wg sync.WaitGroup
-	stop := make(chan struct{})
-	errCh := make(chan error, 1)
-
-	// Start watching messages
-	wg.Add(1)
-	go func() {
-		client.WatchMessages(&wg, stop, errCh)
-	}()
-	kg.Print("Started to watch messages from " + server)
-
-	// Start watching alerts
-	wg.Add(1)
-	go func() {
-		client.WatchAlerts(&wg, stop, errCh)
-	}()
-	kg.Print("Started to watch alerts from " + server)
-
-	// Start watching logs
-	wg.Add(1)
-	go func() {
-		client.WatchLogs(&wg, stop, errCh)
-	}()
-	kg.Print("Started to watch logs from " + server)
-
-	// Wait for an error or all goroutines to finish
-	select {
-	case err := <-errCh:
-		close(stop) // Stop other goroutines
-		kg.Warn(err.Error())
-	case <-func() chan struct{} {
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-		return done
-	}():
-		// All goroutines finished without error
-	}
-
-	if err := client.DestroyClient(); err != nil {
-		kg.Warnf("Failed to destroy the client (%s) %s", server, err.Error())
-	}
-	kg.Printf("Destroyed the client (%s)", server)
 
 	return nil
 }
@@ -810,16 +811,13 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 		}
 
 		for Running {
-			select {
-			case ip := <-ipsChan:
-				ClientListLock.Lock()
-				if _, ok := ClientList[ip]; !ok {
-					ClientList[ip] = 1
-					go connectToKubeArmor(ip, rs.Port)
-				}
-				ClientListLock.Unlock()
+			ip := <-ipsChan
+			ClientListLock.Lock()
+			if _, ok := ClientList[ip]; !ok {
+				ClientList[ip] = 1
+				go connectToKubeArmor(ip, rs.Port)
 			}
-			time.Sleep(10 * time.Second)
+			ClientListLock.Unlock()
 		}
 	}
 }
