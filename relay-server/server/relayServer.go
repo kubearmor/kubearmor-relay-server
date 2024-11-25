@@ -712,14 +712,18 @@ func DeleteClientEntry(nodeIP string) {
 // == KubeArmor == //
 // =============== //
 
-func connectToKubeArmor(nodeIP, port string) error {
+func connectToKubeArmor(nodeID, port string) error {
 
+	nodeIP, err := extractIP(nodeID)
+	if err != nil {
+		return err
+	}
 	// create connection info
 	server := nodeIP + ":" + port
 
 	for Running {
 		ClientListLock.RLock()
-		_, found := ClientList[nodeIP]
+		_, found := ClientList[nodeID]
 		ClientListLock.RUnlock()
 		if !found {
 			// KubeArmor with this IP is deleted or the IP has changed

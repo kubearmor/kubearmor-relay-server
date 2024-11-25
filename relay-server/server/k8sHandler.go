@@ -264,7 +264,8 @@ func (kh *K8sHandler) getKaPodInformer(ipsChan chan string) cache.SharedIndexInf
 			}
 
 			if pod.Status.PodIP != "" {
-				ipsChan <- pod.Status.PodIP
+				// generate id <pod-name>:<pod-ip>
+				ipsChan <- generateID(pod.Name, pod.Status.PodIP)
 			}
 		},
 		UpdateFunc: func(old, new interface{}) {
@@ -279,8 +280,10 @@ func (kh *K8sHandler) getKaPodInformer(ipsChan chan string) cache.SharedIndexInf
 			}
 
 			if newPod.Status.PodIP != "" && newPod.Status.PodIP != oldPod.Status.PodIP {
-				ipsChan <- newPod.Status.PodIP
-				DeleteClientEntry(oldPod.Status.PodIP)
+				if oldPod.Status.PodIP != "" {
+					DeleteClientEntry(generateID(oldPod.Name, oldPod.Status.PodIP))
+				}
+				ipsChan <- generateID(newPod.Name, newPod.Status.PodIP)
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -290,7 +293,7 @@ func (kh *K8sHandler) getKaPodInformer(ipsChan chan string) cache.SharedIndexInf
 			}
 
 			if pod.Status.PodIP != "" {
-				DeleteClientEntry(pod.Status.PodIP)
+				DeleteClientEntry(generateID(pod.Name, pod.Status.PodIP))
 			}
 		},
 	})
@@ -310,7 +313,23 @@ func (kh *K8sHandler) findExistingKaPodsIp(ctx context.Context, ipsChan chan str
 
 	for _, pod := range pods.Items {
 		if pod.Status.PodIP != "" {
-			ipsChan <- pod.Status.PodIP
+			ipsChan <- generateID(pod.Name, pod.Status.PodIP)
 		}
 	}
+}
+
+// ===========
+// == utils ==
+// ===========
+
+func generateID(podName, podIP string) string {
+	return fmt.Sprintf("%s:%s", podName, podIP)
+}
+
+func extractIP(podID string) (string, error) {
+	id := strings.Split(podID, ":")
+	if len(id) != 2 {
+		return "", fmt.Errorf("invalid ID format: %s", podID)
+	}
+	return id[1], nil
 }
