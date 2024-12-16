@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -116,7 +117,8 @@ func (ecl *ElasticsearchClient) Start() error {
 	start = time.Now()
 	client := ecl.kaClient
 	ecl.ctx, ecl.cancel = context.WithCancel(context.Background())
-
+	client.WgServer = &errgroup.Group{}
+	client.Context = ecl.ctx
 	// do healthcheck
 	if ok := client.DoHealthCheck(); !ok {
 		return fmt.Errorf("failed to check the liveness of the gRPC server")

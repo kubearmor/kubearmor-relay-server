@@ -87,6 +87,7 @@ func main() {
 		esCl, err := elasticsearch.NewElasticsearchClient(esUrl, endPoint)
 		if err != nil {
 			kg.Warnf("Failed to start a Elasticsearch Client")
+			return
 		}
 		go esCl.Start()
 		defer esCl.Stop()
