@@ -84,12 +84,14 @@ func main() {
 
 	// check and start an elasticsearch client
 	if enableEsDashboards == "true" {
-		esCl, err := elasticsearch.NewElasticsearchClient(esUrl, endPoint)
+		esCl, err := elasticsearch.NewElasticsearchClient(esUrl)
 		if err != nil {
 			kg.Warnf("Failed to start a Elasticsearch Client")
+			return
 		}
-		go esCl.Start()
-		defer esCl.Stop()
+		relayServer.ELKClient = esCl
+		go relayServer.ELKClient.Start()
+		defer relayServer.ELKClient.Stop()
 	}
 
 	// == //

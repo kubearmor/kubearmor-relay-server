@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/elasticsearch"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 )
 
@@ -495,6 +496,9 @@ func (rs *RelayServer) AddAlertFromBuffChan() {
 				tel, _ := json.Marshal(alert)
 				fmt.Printf("%s\n", string(tel))
 			}
+			if rs.ELKClient != nil {
+				rs.ELKClient.SendAlertToBuffer(alert)
+			}
 			AlertLock.RLock()
 			for uid := range AlertStructs {
 				select {
@@ -591,6 +595,9 @@ type RelayServer struct {
 
 	// wait group
 	WgServer sync.WaitGroup
+
+	// ELK adapter
+	ELKClient *elasticsearch.ElasticsearchClient
 }
 
 // LogBufferChannel store incoming data from log stream in buffer
@@ -681,7 +688,6 @@ func (rs *RelayServer) DestroyRelayServer() error {
 
 	// wait for other routines
 	rs.WgServer.Wait()
-
 	return nil
 }
 
@@ -713,7 +719,6 @@ func DeleteClientEntry(nodeIP string) {
 // =============== //
 
 func connectToKubeArmor(nodeID, port string) error {
-
 	nodeIP, err := extractIP(nodeID)
 	if err != nil {
 		return err
@@ -787,7 +792,6 @@ func connectToKubeArmor(nodeID, port string) error {
 
 		kg.Printf("Destroyed the client (%s)", server)
 	}
-
 	return nil
 }
 
@@ -815,13 +819,17 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 		}
 
 		for Running {
-			ip := <-ipsChan
-			ClientListLock.Lock()
-			if _, ok := ClientList[ip]; !ok {
-				ClientList[ip] = 1
-				go connectToKubeArmor(ip, rs.Port)
+			select {
+			case ip := <-ipsChan:
+				ClientListLock.Lock()
+				if _, ok := ClientList[ip]; !ok {
+					ClientList[ip] = 1
+					go connectToKubeArmor(ip, rs.Port)
+				}
+				ClientListLock.Unlock()
+			case <-time.After(time.Second):
+				// no op
 			}
-			ClientListLock.Unlock()
 		}
 	}
 }

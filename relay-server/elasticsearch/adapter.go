@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esutil"
 	"github.com/google/uuid"
+	pb "github.com/kubearmor/KubeArmor/protobuf"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/server"
 )
 
 var (
@@ -27,7 +28,6 @@ var (
 
 // ElasticsearchClient Structure
 type ElasticsearchClient struct {
-	kaClient    *server.LogClient
 	esClient    *elasticsearch.Client
 	cancel      context.CancelFunc
 	bulkIndexer esutil.BulkIndexer
@@ -38,7 +38,7 @@ type ElasticsearchClient struct {
 // NewElasticsearchClient creates a new Elasticsearch client with the given Elasticsearch URL
 // and kubearmor LogClient with endpoint. It has a retry mechanism for certain HTTP status codes and a backoff function for retry delays.
 // It then creates a new NewBulkIndexer with the esClient
-func NewElasticsearchClient(esURL, Endpoint string) (*ElasticsearchClient, error) {
+func NewElasticsearchClient(esURL string) (*ElasticsearchClient, error) {
 	retryBackoff := backoff.NewExponentialBackOff()
 	cfg := elasticsearch.Config{
 		Addresses: []string{esURL},
@@ -69,8 +69,7 @@ func NewElasticsearchClient(esURL, Endpoint string) (*ElasticsearchClient, error
 		log.Fatalf("Error creating the indexer: %s", err)
 	}
 	alertCh := make(chan interface{}, 10000)
-	kaClient := server.NewClient(Endpoint)
-	return &ElasticsearchClient{kaClient: kaClient, bulkIndexer: bi, esClient: esClient, alertCh: alertCh}, nil
+	return &ElasticsearchClient{bulkIndexer: bi, esClient: esClient, alertCh: alertCh}, nil
 }
 
 // bulkIndex takes an interface and index name and adds the data to the Elasticsearch bulk indexer.
@@ -108,70 +107,39 @@ func (ecl *ElasticsearchClient) bulkIndex(a interface{}, index string) {
 	}
 }
 
+func (ecl *ElasticsearchClient) SendAlertToBuffer(alert *pb.Alert) {
+	ecl.alertCh <- alert
+}
+
 // Start starts the Elasticsearch client by performing a health check on the gRPC server
 // and starting goroutines to consume messages from the alert channel and bulk index them.
 // The method starts a goroutine for each stream and waits for messages to be received.
 // Additional goroutines consume alert from the alert channel and bulk index them.
 func (ecl *ElasticsearchClient) Start() error {
 	start = time.Now()
-	client := ecl.kaClient
 	ecl.ctx, ecl.cancel = context.WithCancel(context.Background())
-
-	// do healthcheck
-	if ok := client.DoHealthCheck(); !ok {
-		return fmt.Errorf("failed to check the liveness of the gRPC server")
-	}
-	kg.Printf("Checked the liveness of the gRPC server")
-
-	client.WgServer.Go(func() error {
-		for client.Running {
-			res, err := client.AlertStream.Recv()
-			if err != nil {
-				return fmt.Errorf("failed to receive an alert (%s) %s", client.Server, err)
-			}
-			tel, _ := json.Marshal(res)
-			fmt.Printf("%s\n", string(tel))
-
-			select {
-			case ecl.alertCh <- res:
-			case <-client.Context.Done():
-				// The context is over, stop processing results
-				return nil
-			default:
-				//not able to add it to Log buffer
-			}
-		}
-		return nil
-	})
+	var wg sync.WaitGroup
 
 	for i := 0; i < 5; i++ {
+		wg.Add(1)
 		go func() {
 			for {
 				select {
 				case alert := <-ecl.alertCh:
 					ecl.bulkIndex(alert, "alert")
 				case <-ecl.ctx.Done():
-					close(ecl.alertCh)
 					return
 				}
 			}
 		}()
 	}
+	wg.Wait()
 	return nil
 }
 
 // Stop stops the Elasticsearch client and performs necessary cleanup operations.
 // It stops the Kubearmor Relay client, closes the BulkIndexer and cancels the context.
 func (ecl *ElasticsearchClient) Stop() error {
-	logClient := ecl.kaClient
-	logClient.Running = false
-	time.Sleep(2 * time.Second)
-
-	//Destoy KubeArmor Relay Client
-	if err := logClient.DestroyClient(); err != nil {
-		return fmt.Errorf("failed to destroy the kubearmor relay gRPC client (%s)", err.Error())
-	}
-	kg.Printf("Destroyed kubearmor relay gRPC client")
 
 	//Close BulkIndexer
 	if err := ecl.bulkIndexer.Close(ecl.ctx); err != nil {
