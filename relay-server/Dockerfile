@@ -19,6 +19,7 @@ ARG VERSION="latest"
 
 LABEL name="kubearmor-relay-server" \
       vendor="AccuKnox" \
+      maintainer="Barun Acharya, Ramakant Sharma" \
       version=${VERSION} \
       release=${VERSION} \
       summary="kubearmor-relay container image based on redhat ubi" \
