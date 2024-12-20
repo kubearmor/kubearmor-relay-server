@@ -57,6 +57,12 @@ func main() {
 	//get env
 	enableEsDashboards := os.Getenv("ENABLE_DASHBOARDS")
 	esUrl := os.Getenv("ES_URL")
+	esUser := os.Getenv("ES_USERNAME")
+	esPassword := os.Getenv("ES_PASSWORD")
+	esAlertsIndex := os.Getenv("ES_ALERTS_INDEX")
+	if esAlertsIndex == "" {
+		esAlertsIndex = "kubearmor-alerts"
+	}
 	endPoint := os.Getenv("KUBEARMOR_SERVICE")
 	if endPoint == "" {
 		endPoint = "localhost:32767"
@@ -84,13 +90,13 @@ func main() {
 
 	// check and start an elasticsearch client
 	if enableEsDashboards == "true" {
-		esCl, err := elasticsearch.NewElasticsearchClient(esUrl)
+		esCl, err := elasticsearch.NewElasticsearchClient(esUrl, esUser, esPassword)
 		if err != nil {
 			kg.Warnf("Failed to start a Elasticsearch Client")
 			return
 		}
 		relayServer.ELKClient = esCl
-		go relayServer.ELKClient.Start()
+		go relayServer.ELKClient.Start(esAlertsIndex)
 		defer relayServer.ELKClient.Stop()
 	}
 
