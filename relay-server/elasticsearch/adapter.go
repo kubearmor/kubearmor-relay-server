@@ -38,7 +38,7 @@ type ElasticsearchClient struct {
 // NewElasticsearchClient creates a new Elasticsearch client with the given Elasticsearch URL
 // and kubearmor LogClient with endpoint. It has a retry mechanism for certain HTTP status codes and a backoff function for retry delays.
 // It then creates a new NewBulkIndexer with the esClient
-func NewElasticsearchClient(esURL string) (*ElasticsearchClient, error) {
+func NewElasticsearchClient(esURL string, esUser string, esPassword string) (*ElasticsearchClient, error) {
 	retryBackoff := backoff.NewExponentialBackOff()
 	cfg := elasticsearch.Config{
 		Addresses: []string{esURL},
@@ -54,6 +54,11 @@ func NewElasticsearchClient(esURL string) (*ElasticsearchClient, error) {
 			return retryBackoff.NextBackOff()
 		},
 		MaxRetries: 5,
+	}
+
+	if len(esUser) != 0 && len(esPassword) != 0 {
+		cfg.Username = esUser
+		cfg.Password = esPassword
 	}
 
 	esClient, err := elasticsearch.NewClient(cfg)
@@ -115,7 +120,7 @@ func (ecl *ElasticsearchClient) SendAlertToBuffer(alert *pb.Alert) {
 // and starting goroutines to consume messages from the alert channel and bulk index them.
 // The method starts a goroutine for each stream and waits for messages to be received.
 // Additional goroutines consume alert from the alert channel and bulk index them.
-func (ecl *ElasticsearchClient) Start() error {
+func (ecl *ElasticsearchClient) Start(AlertsIndex string) error {
 	start = time.Now()
 	ecl.ctx, ecl.cancel = context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -126,7 +131,7 @@ func (ecl *ElasticsearchClient) Start() error {
 			for {
 				select {
 				case alert := <-ecl.alertCh:
-					ecl.bulkIndex(alert, "alert")
+					ecl.bulkIndex(alert, AlertsIndex)
 				case <-ecl.ctx.Done():
 					return
 				}
