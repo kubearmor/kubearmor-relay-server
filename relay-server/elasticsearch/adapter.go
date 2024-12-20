@@ -3,9 +3,12 @@ package elasticsearch
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,7 +41,16 @@ type ElasticsearchClient struct {
 // NewElasticsearchClient creates a new Elasticsearch client with the given Elasticsearch URL
 // and kubearmor LogClient with endpoint. It has a retry mechanism for certain HTTP status codes and a backoff function for retry delays.
 // It then creates a new NewBulkIndexer with the esClient
-func NewElasticsearchClient(esURL string, esUser string, esPassword string) (*ElasticsearchClient, error) {
+func NewElasticsearchClient(esURL string, esUser string, esPassword string, esCaCertPath string, esAllowInsecureTLS bool) (*ElasticsearchClient, error) {
+
+	caCertBytes := []byte{}
+	if esCaCertPath != "" {
+		var err error
+		caCertBytes, err = os.ReadFile(esCaCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open Elasticsearch CA file: %v", err)
+		}
+	}
 	retryBackoff := backoff.NewExponentialBackOff()
 	cfg := elasticsearch.Config{
 		Addresses: []string{esURL},
@@ -54,6 +66,12 @@ func NewElasticsearchClient(esURL string, esUser string, esPassword string) (*El
 			return retryBackoff.NextBackOff()
 		},
 		MaxRetries: 5,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: esAllowInsecureTLS,
+			},
+		},
+		CACert: caCertBytes,
 	}
 
 	if len(esUser) != 0 && len(esPassword) != 0 {

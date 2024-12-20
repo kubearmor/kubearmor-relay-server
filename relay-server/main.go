@@ -59,6 +59,11 @@ func main() {
 	esUrl := os.Getenv("ES_URL")
 	esUser := os.Getenv("ES_USERNAME")
 	esPassword := os.Getenv("ES_PASSWORD")
+	esCaCertPath := os.Getenv("ES_CA_CERT_PATH")
+	esAllowInsecureTLS := false
+	if os.Getenv("ES_ALLOW_INSECURE_TLS") != "" {
+		esAllowInsecureTLS = true
+	}
 	esAlertsIndex := os.Getenv("ES_ALERTS_INDEX")
 	if esAlertsIndex == "" {
 		esAlertsIndex = "kubearmor-alerts"
@@ -90,7 +95,7 @@ func main() {
 
 	// check and start an elasticsearch client
 	if enableEsDashboards == "true" {
-		esCl, err := elasticsearch.NewElasticsearchClient(esUrl, esUser, esPassword)
+		esCl, err := elasticsearch.NewElasticsearchClient(esUrl, esUser, esPassword, esCaCertPath, esAllowInsecureTLS)
 		if err != nil {
 			kg.Warnf("Failed to start a Elasticsearch Client")
 			return
