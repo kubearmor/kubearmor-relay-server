@@ -3,9 +3,12 @@ package elasticsearch
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,7 +41,8 @@ type ElasticsearchClient struct {
 // NewElasticsearchClient creates a new Elasticsearch client with the given Elasticsearch URL
 // and kubearmor LogClient with endpoint. It has a retry mechanism for certain HTTP status codes and a backoff function for retry delays.
 // It then creates a new NewBulkIndexer with the esClient
-func NewElasticsearchClient(esURL string, esUser string, esPassword string) (*ElasticsearchClient, error) {
+func NewElasticsearchClient(esURL string, esUser string, esPassword string, esCaCertPath string, esAllowInsecureTLS bool) (*ElasticsearchClient, error) {
+
 	retryBackoff := backoff.NewExponentialBackOff()
 	cfg := elasticsearch.Config{
 		Addresses: []string{esURL},
@@ -54,6 +58,19 @@ func NewElasticsearchClient(esURL string, esUser string, esPassword string) (*El
 			return retryBackoff.NextBackOff()
 		},
 		MaxRetries: 5,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: esAllowInsecureTLS,
+			},
+		},
+	}
+
+	if esCaCertPath != "" {
+		caCertBytes, err := os.ReadFile(esCaCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open Elasticsearch CA file: %v", err)
+		}
+		cfg.CACert = caCertBytes
 	}
 
 	if len(esUser) != 0 && len(esPassword) != 0 {
@@ -68,10 +85,13 @@ func NewElasticsearchClient(esURL string, esUser string, esPassword string) (*El
 	bi, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
 		Client:        esClient,         // The Elasticsearch client
 		FlushBytes:    1000000,          // The flush threshold in bytes [1mb]
-		FlushInterval: 30 * time.Second, // The periodic flush interval [30 secs]
+		FlushInterval: 10 * time.Second, // The periodic flush interval [30 secs]
+		OnError: func(ctx context.Context, err error) {
+			log.Fatalf("Error creating the indexer: %v", err)
+		},
 	})
 	if err != nil {
-		log.Fatalf("Error creating the indexer: %s", err)
+		log.Fatalf("Error creating the indexer: %v", err)
 	}
 	alertCh := make(chan interface{}, 10000)
 	return &ElasticsearchClient{bulkIndexer: bi, esClient: esClient, alertCh: alertCh}, nil
