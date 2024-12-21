@@ -43,14 +43,6 @@ type ElasticsearchClient struct {
 // It then creates a new NewBulkIndexer with the esClient
 func NewElasticsearchClient(esURL string, esUser string, esPassword string, esCaCertPath string, esAllowInsecureTLS bool) (*ElasticsearchClient, error) {
 
-	caCertBytes := []byte{}
-	if esCaCertPath != "" {
-		var err error
-		caCertBytes, err = os.ReadFile(esCaCertPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open Elasticsearch CA file: %v", err)
-		}
-	}
 	retryBackoff := backoff.NewExponentialBackOff()
 	cfg := elasticsearch.Config{
 		Addresses: []string{esURL},
@@ -71,7 +63,14 @@ func NewElasticsearchClient(esURL string, esUser string, esPassword string, esCa
 				InsecureSkipVerify: esAllowInsecureTLS,
 			},
 		},
-		CACert: caCertBytes,
+	}
+
+	if esCaCertPath != "" {
+		caCertBytes, err := os.ReadFile(esCaCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open Elasticsearch CA file: %v", err)
+		}
+		cfg.CACert = caCertBytes
 	}
 
 	if len(esUser) != 0 && len(esPassword) != 0 {
@@ -86,10 +85,13 @@ func NewElasticsearchClient(esURL string, esUser string, esPassword string, esCa
 	bi, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
 		Client:        esClient,         // The Elasticsearch client
 		FlushBytes:    1000000,          // The flush threshold in bytes [1mb]
-		FlushInterval: 30 * time.Second, // The periodic flush interval [30 secs]
+		FlushInterval: 10 * time.Second, // The periodic flush interval [30 secs]
+		OnError: func(ctx context.Context, err error) {
+			log.Fatalf("Error creating the indexer: %v", err)
+		},
 	})
 	if err != nil {
-		log.Fatalf("Error creating the indexer: %s", err)
+		log.Fatalf("Error creating the indexer: %v", err)
 	}
 	alertCh := make(chan interface{}, 10000)
 	return &ElasticsearchClient{bulkIndexer: bi, esClient: esClient, alertCh: alertCh}, nil

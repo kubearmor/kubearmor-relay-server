@@ -97,7 +97,7 @@ func main() {
 	if enableEsDashboards == "true" {
 		esCl, err := elasticsearch.NewElasticsearchClient(esUrl, esUser, esPassword, esCaCertPath, esAllowInsecureTLS)
 		if err != nil {
-			kg.Warnf("Failed to start a Elasticsearch Client")
+			kg.Warnf("Failed to start a Elasticsearch Client, %v", err)
 			return
 		}
 		relayServer.ELKClient = esCl
