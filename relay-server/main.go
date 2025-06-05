@@ -4,11 +4,12 @@
 package main
 
 import (
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/elasticsearch"
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/opensearch"
 	"os"
 	"os/signal"
 	"syscall"
-
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/elasticsearch"
+	"time"
 
 	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
@@ -56,6 +57,7 @@ func main() {
 
 	//get env
 	enableEsDashboards := os.Getenv("ENABLE_DASHBOARDS")
+	enableOsDashboards := os.Getenv("ENABLE_OPENSEARCH_DASHBOARD")
 	esUrl := os.Getenv("ES_URL")
 	esUser := os.Getenv("ES_USERNAME")
 	esPassword := os.Getenv("ES_PASSWORD")
@@ -103,6 +105,19 @@ func main() {
 		relayServer.ELKClient = esCl
 		go relayServer.ELKClient.Start(esAlertsIndex)
 		defer relayServer.ELKClient.Stop()
+	}
+
+	if enableOsDashboards == "true" {
+		batchsize := 10
+		flushtime := 10 * time.Second
+		osClient, err := opensearch.NewOpenSearchClient(batchsize, flushtime)
+		if err != nil {
+			kg.Warnf("Failed to start a OpenSearchClient Client, %v", err)
+			return
+		}
+		relayServer.OSClient = osClient
+
+		defer relayServer.OSClient.Stop()
 	}
 
 	// == //
