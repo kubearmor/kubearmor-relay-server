@@ -112,7 +112,7 @@ func main() {
 		flushtime := 10 * time.Second
 		osClient, err := opensearch.NewOpenSearchClient(batchsize, flushtime)
 		if err != nil {
-			kg.Warnf("Failed to start a OpenSearchClient Client, %v", err)
+			kg.Errf("Failed to start a OpenSearchClient Client, %v", err)
 			return
 		}
 		relayServer.OSClient = osClient
