@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go"
-	"github.com/opensearch-project/opensearch-go/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 )
 
 type OpenSearchClient struct {
-	client     *opensearch.Client
+	client     *opensearchapi.Client
 	teleCh     chan interface{}
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -35,6 +35,15 @@ func NewOpenSearchClient(
 ) (*OpenSearchClient, error) {
 
 	osURL := os.Getenv("OS_URL")
+	if osURL == "" {
+		osURL = "http://localhost:9200" // default url
+	}
+
+	osAlertsIndex := os.Getenv("OS_ALERTS_INDEX")
+	if osAlertsIndex == "" {
+		return nil, fmt.Errorf("Invalid index name")
+	}
+
 	osUser := os.Getenv("OS_USERNAME")
 	osPassword := os.Getenv("OS_PASSWORD")
 	osCaCertPath := os.Getenv("OS_CA_CERT_PATH")
@@ -43,7 +52,6 @@ func NewOpenSearchClient(
 	if insecuretls != "" && insecuretls == "true" {
 		osAllowInsecureTLS = true
 	}
-	osAlertsIndex := os.Getenv("OS_ALERTS_INDEX")
 
 	cfg := opensearch.Config{
 		Addresses: []string{osURL},
@@ -64,7 +72,9 @@ func NewOpenSearchClient(
 		cfg.CACert = caCertBytes
 	}
 
-	client, err := opensearch.NewClient(cfg)
+	client, err := opensearchapi.NewClient(opensearchapi.Config{
+		Client: cfg,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenSearch client: %w", err)
 	}
@@ -80,7 +90,6 @@ func NewOpenSearchClient(
 		flushAfter: flushAfter,
 		indexName:  osAlertsIndex,
 	}
-	log.Print("os client: ", osc)
 
 	go osc.runBulkWorker()
 	return osc, nil
@@ -107,19 +116,18 @@ func (osClient *OpenSearchClient) runBulkWorker() {
 			buf.WriteString(entry + "\n")
 		}
 
-		req := opensearchapi.BulkRequest{
+		bulkRequest := opensearchapi.BulkReq{
 			Body: strings.NewReader(buf.String()),
 		}
-		resp, err := req.Do(osClient.ctx, osClient.client)
+
+		// Execute the request using the Bulk() function
+		resp, err := osClient.client.Bulk(osClient.ctx, bulkRequest)
 		if err != nil {
 			log.Printf("Bulk indexing error: %v", err)
 			return
 		}
-		defer resp.Body.Close()
+		defer resp.Inspect().Response.Body.Close()
 
-		if resp.IsError() {
-			log.Printf("Bulk request error: %s", resp.String())
-		}
 		batch = batch[:0]
 
 	}
@@ -145,9 +153,9 @@ func (osClient *OpenSearchClient) runBulkWorker() {
 
 }
 
-func (osClient *OpenSearchClient) SendTelemetryToBuffer(alert interface{}) {
+func (osClient *OpenSearchClient) SendTelemetryToBuffer(kubearmorlog interface{}) {
 	select {
-	case osClient.teleCh <- alert:
+	case osClient.teleCh <- kubearmorlog:
 		log.Printf("received alert")
 	default:
 		log.Println("Warning: alert channel is full, dropping alert")
