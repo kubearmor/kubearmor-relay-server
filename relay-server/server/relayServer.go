@@ -98,7 +98,7 @@ type LogService struct {
 	//
 }
 
-// IP to K8sResource MAp
+// IP to K8sResource Map
 var Ipcache sync.Map
 
 // HealthCheck Function
@@ -876,16 +876,15 @@ func startIPInformers(ctx context.Context, wg *sync.WaitGroup) {
 	updateIP := func(kind, namespace, name, ip string) {
 
 		if ip == "" {
-			Ipcache.Delete(ip)
 			return
 		}
 		resource := ""
 		switch strings.ToUpper(kind) {
 
 		case "POD":
-			resource = fmt.Sprintf("%s.%s.pod", name, namespace)
+			resource = fmt.Sprintf("pod/%s/%s", namespace, name)
 		case "SERVICE":
-			resource = fmt.Sprintf("%s.%s.svc", name, namespace)
+			resource = fmt.Sprintf("svc/%s/%s", namespace, name)
 		}
 
 		Ipcache.Store(ip, resource)
@@ -913,8 +912,8 @@ func startIPInformers(ctx context.Context, wg *sync.WaitGroup) {
 			if !ok {
 				return
 			}
+			Ipcache.Delete(pod.Status.PodIP)
 
-			updateIP("POD", pod.Namespace, pod.Name, "")
 		},
 	})
 
@@ -945,7 +944,7 @@ func startIPInformers(ctx context.Context, wg *sync.WaitGroup) {
 			if !ok {
 				return
 			}
-			updateIP("SERVICE", svc.Namespace, svc.Name, "")
+			Ipcache.Delete(svc.Spec.ClusterIP)
 		},
 	})
 
