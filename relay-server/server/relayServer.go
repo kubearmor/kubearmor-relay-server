@@ -976,7 +976,7 @@ func extractIPfromLog(resource string) string {
 }
 
 func addRemoteHostInfo(log *pb.Log) {
-	if strings.Contains(log.Data, "tcp_") {
+	if (log != nil) && strings.Contains(log.Data, "tcp_") {
 		ip := extractIPfromLog(log.Resource)
 		rawIface, found := Ipcache.Load(ip)
 		if !found {
