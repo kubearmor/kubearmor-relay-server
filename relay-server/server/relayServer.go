@@ -964,7 +964,7 @@ func startIPInformers(ctx context.Context, wg *sync.WaitGroup) {
 
 func extractIPfromLog(resource string) string {
 	for _, field := range strings.Fields(resource) {
-		if strings.HasPrefix(field, "remoteip=") {
+		if strings.Contains(field, "remoteip=") {
 			parts := strings.SplitN(field, "=", 2)
 			if len(parts) == 2 && net.ParseIP(parts[1]) != nil {
 				kg.Debugf("remote ip: %s", parts[1])
