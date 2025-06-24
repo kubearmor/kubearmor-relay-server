@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,10 @@ import (
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/elasticsearch"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
 	"github.com/kubearmor/kubearmor-relay-server/relay-server/opensearch"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
 )
 
 // ============ //
@@ -92,6 +97,9 @@ var LogLock *sync.RWMutex
 type LogService struct {
 	//
 }
+
+// IP to K8sResource Map
+var Ipcache sync.Map
 
 // HealthCheck Function
 func (ls *LogService) HealthCheck(ctx context.Context, nonce *pb.NonceMessage) (*pb.ReplyMessage, error) {
@@ -536,6 +544,7 @@ func (lc *LogClient) WatchLogs(wg *sync.WaitGroup, stop chan struct{}, errCh cha
 				errCh <- fmt.Errorf("failed to receive a log (%s) %s", lc.Server, err.Error())
 				return
 			}
+			addRemoteHostInfo(res)
 
 			select {
 			case LogBufferChannel <- res:
@@ -781,6 +790,9 @@ func connectToKubeArmor(nodeID, port string) error {
 		go client.WatchLogs(&wg, stop, errCh)
 		kg.Print("Started to watch logs from " + server)
 
+		//start IP informers
+		kg.Print("Started to watch k8s IP's for resources")
+
 		// Wait for an error or all goroutines to finish
 		select {
 		case err := <-errCh:
@@ -825,6 +837,8 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 			defer cancel()
 			rs.WgServer.Add(1)
 			go K8s.WatchKubeArmorPods(ctx, &rs.WgServer, ipsChan)
+			rs.WgServer.Add(1)
+			go startIPInformers(ctx, &rs.WgServer)
 		} else {
 			close(ipsChan)
 		}
@@ -842,5 +856,140 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 				// no op
 			}
 		}
+	}
+}
+
+func startIPInformers(ctx context.Context, wg *sync.WaitGroup) {
+	kg.Printf("Started IP informers")
+	defer wg.Done()
+
+	// Check if context is already canceled
+	if ctx.Err() != nil {
+		kg.Errf("Context canceled before starting informers")
+		return
+	}
+
+	factory := informers.NewSharedInformerFactory(K8s.K8sClient, 30*time.Second)
+	podInformer := factory.Core().V1().Pods().Informer()
+	svcInformer := factory.Core().V1().Services().Informer()
+
+	updateIP := func(kind, namespace, name, ip string) {
+
+		if ip == "" {
+			return
+		}
+		resource := ""
+		switch strings.ToUpper(kind) {
+
+		case "POD":
+			resource = fmt.Sprintf("pod/%s/%s", namespace, name)
+		case "SERVICE":
+			resource = fmt.Sprintf("svc/%s/%s", namespace, name)
+		}
+
+		Ipcache.Store(ip, resource)
+	}
+
+	// 4. Attach event handlers
+	_, err := podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			pod, ok := obj.(*corev1.Pod)
+			if !ok {
+				return
+			}
+			updateIP("POD", pod.Namespace, pod.Name, pod.Status.PodIP)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			pod, ok := newObj.(*corev1.Pod)
+			if !ok {
+				return
+			}
+
+			updateIP("POD", pod.Namespace, pod.Name, pod.Status.PodIP)
+		},
+		DeleteFunc: func(obj interface{}) {
+			pod, ok := obj.(*corev1.Pod)
+			if !ok {
+				return
+			}
+			Ipcache.Delete(pod.Status.PodIP)
+
+		},
+	})
+
+	if err != nil {
+		kg.Errf("Failed to add pod event handler: %v", err)
+	}
+
+	// Service handlers
+	_, err = svcInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			svc, ok := obj.(*corev1.Service)
+			if !ok {
+				return
+			}
+
+			updateIP("SERVICE", svc.Namespace, svc.Name, svc.Spec.ClusterIP)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			svc, ok := newObj.(*corev1.Service)
+			if !ok {
+				return
+			}
+
+			updateIP("SERVICE", svc.Namespace, svc.Name, svc.Spec.ClusterIP)
+		},
+		DeleteFunc: func(obj interface{}) {
+			svc, ok := obj.(*corev1.Service)
+			if !ok {
+				return
+			}
+			Ipcache.Delete(svc.Spec.ClusterIP)
+		},
+	})
+
+	if err != nil {
+		kg.Errf("Failed to add service event handler: %v", err)
+	}
+
+	factory.Start(ctx.Done())
+	if !cache.WaitForCacheSync(ctx.Done(), podInformer.HasSynced, svcInformer.HasSynced) {
+		kg.Errf("Timed out waiting for cache sync")
+		return
+	}
+
+	<-ctx.Done()
+	kg.Printf("Shutting down informers…")
+}
+
+func extractIPfromLog(resource string) string {
+	for _, field := range strings.Fields(resource) {
+		if strings.Contains(field, "remoteip=") {
+			parts := strings.SplitN(field, "=", 2)
+			if len(parts) == 2 && net.ParseIP(parts[1]) != nil {
+				kg.Debugf("remote ip: %s", parts[1])
+				return parts[1]
+			}
+		}
+	}
+	return ""
+}
+
+func addRemoteHostInfo(log *pb.Log) {
+	if (log != nil) && strings.Contains(log.Data, "tcp_") {
+		ip := extractIPfromLog(log.Resource)
+		rawIface, found := Ipcache.Load(ip)
+		if !found {
+			kg.Printf("Host not found for this IP")
+			return
+		}
+
+		k8sRes, ok := rawIface.(string)
+		if !ok {
+			return
+		}
+
+		log.Resource = fmt.Sprintf("%s remotehost=%s", log.Resource, k8sRes)
+		kg.Printf("%s", log.Resource)
 	}
 }
