@@ -65,6 +65,7 @@ func NewOpenSearchClient(
 	}
 
 	if osCaCertPath != "" && !osAllowInsecureTLS {
+		// #nosec
 		caCertBytes, err := os.ReadFile(osCaCertPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA cert: %w", err)

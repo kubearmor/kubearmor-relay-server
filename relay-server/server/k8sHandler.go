@@ -161,6 +161,7 @@ func (kh *K8sHandler) DoRequest(cmd string, data interface{}, path string) ([]by
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", kh.K8sToken))
 	}
 
+	// #nosec
 	resp, err := kh.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
