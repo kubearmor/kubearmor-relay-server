@@ -13,7 +13,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +26,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 // ================= //
@@ -124,64 +122,12 @@ func (kh *K8sHandler) InitK8sClient() bool {
 		return false
 	}
 
-	if kh.K8sClient == nil {
-		if kl.IsInK8sCluster() {
-			return kh.InitInclusterAPIClient()
-		}
-		return kh.InitLocalAPIClient()
-	}
-
-	return true
-}
-
-// InitLocalAPIClient Function
-func (kh *K8sHandler) InitLocalAPIClient() bool {
-	kubeconfig := os.Getenv("KUBECONFIG")
-	if kubeconfig == "" {
-		kubeconfig = os.Getenv("HOME") + "/.kube/config"
-		if _, err := os.Stat(filepath.Clean(kubeconfig)); err != nil {
-			return false
-		}
-	}
-
-	// use the current context in kubeconfig
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	conf, err := ctrl.GetConfig()
 	if err != nil {
+		kg.Warnf(err.Error())
 		return false
 	}
-
-	// creates the clientset
-	client, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return false
-	}
-	kh.K8sClient = client
-
-	return true
-}
-
-// InitInclusterAPIClient Function
-func (kh *K8sHandler) InitInclusterAPIClient() bool {
-	read, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	if err != nil {
-		return false
-	}
-	kh.K8sToken = string(read)
-
-	// create the configuration by token
-	kubeConfig := &rest.Config{
-		Host:        "https://" + kh.K8sHost + ":" + kh.K8sPort,
-		BearerToken: kh.K8sToken,
-		TLSClientConfig: rest.TLSClientConfig{
-			Insecure: true,
-		},
-	}
-
-	client, err := kubernetes.NewForConfig(kubeConfig)
-	if err != nil {
-		return false
-	}
-	kh.K8sClient = client
+	kh.K8sClient = kubernetes.NewForConfigOrDie(conf)
 
 	return true
 }
@@ -323,11 +269,12 @@ func (kh *K8sHandler) findExistingKaPodsIp(ctx context.Context, ipsChan chan str
 // ===========
 
 func generateID(podName, podIP string) string {
-	return fmt.Sprintf("%s:%s", podName, podIP)
+	// do not use ":" as this will not work for ipv6 addresses
+	return fmt.Sprintf("%s#%s", podName, podIP)
 }
 
 func extractIP(podID string) (string, error) {
-	id := strings.Split(podID, ":")
+	id := strings.Split(podID, "#")
 	if len(id) != 2 {
 		return "", fmt.Errorf("invalid ID format: %s", podID)
 	}

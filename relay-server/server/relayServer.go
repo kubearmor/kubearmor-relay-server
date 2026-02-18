@@ -744,7 +744,9 @@ func connectToKubeArmor(nodeID, port string) error {
 		return err
 	}
 	// create connection info
-	server := nodeIP + ":" + port
+
+	server := net.JoinHostPort(nodeIP, port)
+	kg.Printf("Connecting to server %s", server)
 
 	for Running {
 		ClientListLock.RLock()
@@ -856,6 +858,8 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 				// no op
 			}
 		}
+	} else {
+		kg.Errf("Failed to initialize kubernetes config")
 	}
 }
 
