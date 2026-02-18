@@ -21,6 +21,7 @@ func IsK8sLocal() bool {
 	}
 
 	home := os.Getenv("HOME")
+	// #nosec
 	if _, err := os.Stat(filepath.Clean(home + "/.kube/config")); err == nil {
 		return true
 	}
@@ -33,7 +34,7 @@ func IsInK8sCluster() bool {
 	if _, ok := os.LookupEnv("KUBERNETES_SERVICE_HOST"); ok {
 		return true
 	}
-
+	// #nosec
 	if _, err := os.Stat(filepath.Clean("/run/secrets/kubernetes.io")); err == nil {
 		return true
 	}
