@@ -1,6 +1,6 @@
 ### Builder
 
-FROM golang:1.25-alpine3.22 as builder
+FROM golang:1.26-alpine3.23 as builder
 
 RUN apk update
 RUN apk add --no-cache make
@@ -13,7 +13,7 @@ RUN cd relay-server && make
 
 ### Copy executable image
 
-FROM redhat/ubi9-minimal
+FROM redhat/ubi10-minimal
 
 ARG VERSION="latest"
 
