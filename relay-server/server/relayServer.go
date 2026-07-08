@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
@@ -385,31 +385,32 @@ func NewClient(server string) *LogClient {
 }
 
 // DoHealthCheck Function
-func (lc *LogClient) DoHealthCheck() bool {
-	// #nosec
-	randNum := rand.Int31()
+func DoHealthCheck(nodeIP string) bool {
+	healthServer := net.JoinHostPort(nodeIP, cfg.GlobalConfig.LivenessPort)
 
-	// send a nonce
-	nonce := pb.NonceMessage{Nonce: randNum}
-	res, err := lc.client.HealthCheck(context.Background(), &nonce)
+	// Liveness probe port doesn't use TLS
+	conn, err := grpc.NewClient(healthServer, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", lc.Server)
+		kg.Warnf("Failed to connect to KubeArmor's health check service (%s)", healthServer)
+		return false
+	}
+	defer conn.Close()
+
+	// KubeArmor serves on the liveness probe port 32766
+	client := grpc_health_v1.NewHealthClient(conn)
+	res, err := client.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{})
+	if err != nil {
+		kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s) %v", healthServer, err)
 		return false
 	}
 
-	// check nonce
-	if randNum != res.Retval {
-		return false
-	}
-
-	return true
+	return res.Status == grpc_health_v1.HealthCheckResponse_SERVING
 }
 
 // WatchMessages Function
 func (lc *LogClient) WatchMessages(wg *sync.WaitGroup, stop chan struct{}, errCh chan error) {
 
 	defer wg.Done()
-
 	var err error
 
 	for lc.Running {
@@ -758,20 +759,21 @@ func connectToKubeArmor(nodeID, port string) error {
 			break
 		}
 
-		// create a client
+		// do healthcheck first before creating the log client
+		healthAddr := net.JoinHostPort(nodeIP, cfg.GlobalConfig.LivenessPort)
+		if ok := DoHealthCheck(nodeIP); !ok {
+			kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", healthAddr)
+			time.Sleep(5 * time.Second) // wait for 5 second before retrying
+			continue
+		}
+		kg.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", healthAddr)
+
+		// create a client for log feeds
 		client := NewClient(server)
 		if client == nil {
 			time.Sleep(5 * time.Second) // wait for 5 second before retrying
 			continue
 		}
-
-		// do healthcheck
-		if ok := client.DoHealthCheck(); !ok {
-			kg.Warnf("Failed to check the liveness of KubeArmor's gRPC service (%s)", server)
-			time.Sleep(5 * time.Second) // wait for 5 second before retrying
-			continue
-		}
-		kg.Printf("Checked the liveness of KubeArmor's gRPC service (%s)", server)
 
 		var wg sync.WaitGroup
 		stop := make(chan struct{})
