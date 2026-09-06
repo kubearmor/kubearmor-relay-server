@@ -16,8 +16,10 @@ import (
 func IsK8sLocal() bool {
 	k8sConfig := os.Getenv("KUBECONFIG")
 	// #nosec
-	if _, err := os.Stat(filepath.Clean(k8sConfig)); err == nil {
-		return true
+	if k8sConfig != "" {
+		if _, err := os.Stat(filepath.Clean(k8sConfig)); err == nil {
+			return true
+		}
 	}
 
 	home := os.Getenv("HOME")
