@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
@@ -672,6 +673,11 @@ func NewRelayServer(port string) *RelayServer {
 	// register a log service
 	logService := &LogService{}
 	pb.RegisterLogServiceServer(rs.LogServer, logService)
+
+	// register a grpc health service so k8s can probe readiness/liveness natively
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(rs.LogServer, healthServer)
 
 	// initialize msg structs
 	MsgStructs = make(map[string]MsgStruct)
