@@ -605,6 +605,9 @@ type RelayServer struct {
 	// port
 	Port string
 
+	// KubeArmor Remote port
+	KubeArmorGrpcPort string
+
 	// gRPC listener
 	Listener net.Listener
 
@@ -631,10 +634,11 @@ var MsgBufferChannel chan *pb.Message
 var AlertBufferChannel chan *pb.Alert
 
 // NewRelayServer Function
-func NewRelayServer(port string) *RelayServer {
+func NewRelayServer(port, kubearmorGrpcPort string) *RelayServer {
 	rs := &RelayServer{}
 
 	rs.Port = port
+	rs.KubeArmorGrpcPort = kubearmorGrpcPort
 
 	LogBufferChannel = make(chan *pb.Log, 10000)
 	AlertBufferChannel = make(chan *pb.Alert, 1000)
@@ -853,7 +857,7 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 				ClientListLock.Lock()
 				if _, ok := ClientList[ip]; !ok {
 					ClientList[ip] = 1
-					go connectToKubeArmor(ip, rs.Port)
+					go connectToKubeArmor(ip, rs.KubeArmorGrpcPort)
 				}
 				ClientListLock.Unlock()
 			case <-time.After(time.Second):

@@ -33,7 +33,7 @@ RUN microdnf -y update && \
 RUN groupadd --gid 1000 default \
   && useradd --uid 1000 --gid default --shell /bin/bash --create-home default
 
-COPY LICENSE /licenses/license.txt
+COPY --from=builder /usr/src/kubearmor-relay-server/LICENSE /licenses/license.txt
 COPY --from=builder /usr/src/kubearmor-relay-server/relay-server/kubearmor-relay-server /KubeArmor/kubearmor-relay-server
 
 USER default

@@ -4,12 +4,13 @@
 package main
 
 import (
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/elasticsearch"
-	"github.com/kubearmor/kubearmor-relay-server/relay-server/opensearch"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/elasticsearch"
+	"github.com/kubearmor/kubearmor-relay-server/relay-server/opensearch"
 
 	cfg "github.com/kubearmor/kubearmor-relay-server/relay-server/config"
 	kg "github.com/kubearmor/kubearmor-relay-server/relay-server/log"
@@ -78,12 +79,13 @@ func main() {
 	// == //
 
 	// create a relay server
-	relayServer := server.NewRelayServer(cfg.GlobalConfig.GRPC)
+	relayServer := server.NewRelayServer(cfg.GlobalConfig.GRPC, cfg.GlobalConfig.KubeArmorGrpcPort)
 	if relayServer == nil {
 		kg.Warnf("Failed to create a relay server (:%s)", cfg.GlobalConfig.GRPC)
 		return
 	}
 	kg.Printf("Created a relay server (:%s)", cfg.GlobalConfig.GRPC)
+	kg.Printf("KubeArmor remote port (%s)", cfg.GlobalConfig.KubeArmorGrpcPort)
 
 	// serve log feeds (to clients)
 	go relayServer.ServeLogFeeds()
