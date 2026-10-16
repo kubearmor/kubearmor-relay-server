@@ -82,6 +82,14 @@ spec:
         imagePullPolicy: Always
         ports:
         - containerPort: 32767
+        readinessProbe:
+          grpc:
+            port: 32767
+          initialDelaySeconds: 5
+        livenessProbe:
+          grpc:
+            port: 32767
+          initialDelaySeconds: 10
         resources:
           requests:
             cpu: 250m
