@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	apipb "github.com/accuknox/SentryFlow/protobuf/golang"
 	"github.com/google/uuid"
 	pb "github.com/kubearmor/KubeArmor/protobuf"
 	"golang.org/x/sync/errgroup"
@@ -93,9 +94,80 @@ var LogStructs map[string]LogStruct
 // LogLock Lock
 var LogLock *sync.RWMutex
 
+// APIEventStruct Structure
+type APIEventStruct struct {
+	Filter    string
+	Broadcast chan *apipb.APIEvent
+}
+
+// APIEventStructs Map
+var APIEventStructs map[string]APIEventStruct
+
+// APIEventLock Lock
+var APIEventLock *sync.RWMutex
+
 // LogService Structure
 type LogService struct {
 	//
+}
+
+// APIObserverService Structure
+type APIObserverService struct {
+	apipb.UnimplementedAPIObserverServiceServer
+}
+
+// addAPIEventStruct Function
+func (as *APIObserverService) addAPIEventStruct(uid string, conn chan *apipb.APIEvent, filter string) {
+	APIEventLock.Lock()
+	defer APIEventLock.Unlock()
+
+	apiEventStruct := APIEventStruct{}
+	apiEventStruct.Filter = filter
+	apiEventStruct.Broadcast = conn
+
+	APIEventStructs[uid] = apiEventStruct
+
+	kg.Printf("Added a new client (%s) for GetAPIEvents", uid)
+}
+
+// removeAPIEventStruct Function
+func (as *APIObserverService) removeAPIEventStruct(uid string) {
+	APIEventLock.Lock()
+	defer APIEventLock.Unlock()
+
+	delete(APIEventStructs, uid)
+
+	kg.Printf("Deleted the client (%s) for GetAPIEvents", uid)
+}
+
+// GetAPIEvents Function
+func (as *APIObserverService) GetAPIEvents(filter *apipb.APIEventFilter, svr apipb.APIObserverService_GetAPIEventsServer) error {
+	uid := uuid.Must(uuid.NewRandom()).String()
+	conn := make(chan *apipb.APIEvent, 1000)
+	defer close(conn)
+	as.addAPIEventStruct(uid, conn, "all")
+	defer as.removeAPIEventStruct(uid)
+
+	for Running {
+		select {
+		case <-svr.Context().Done():
+			return nil
+		case resp := <-conn:
+			if status, ok := status.FromError(svr.Send(resp)); ok {
+				switch status.Code() {
+				case codes.OK:
+					// noop
+				case codes.Unavailable, codes.Canceled, codes.DeadlineExceeded:
+					kg.Warnf("relay failed to send an API event=[%+v] err=[%s]", resp, status.Err().Error())
+					return status.Err()
+				default:
+					return nil
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // IP to K8sResource Map
@@ -295,6 +367,9 @@ type LogClient struct {
 	// client
 	client pb.LogServiceClient
 
+	// api events client
+	apiEventsClient apipb.APIObserverServiceClient
+
 	// messages
 	MsgStream pb.LogService_WatchMessagesClient
 
@@ -303,6 +378,9 @@ type LogClient struct {
 
 	// logs
 	LogStream pb.LogService_WatchLogsClient
+
+	// api events
+	APIEventStream apipb.APIObserverService_GetAPIEventsClient
 
 	// wait group
 	WgServer *errgroup.Group
@@ -347,6 +425,7 @@ func NewClient(server string) *LogClient {
 	}()
 
 	lc.client = pb.NewLogServiceClient(lc.conn)
+	lc.apiEventsClient = apipb.NewAPIObserverServiceClient(lc.conn)
 
 	// == //
 
@@ -379,6 +458,16 @@ func NewClient(server string) *LogClient {
 	if err != nil {
 		kg.Warnf("Failed to call WatchLogs (%s)\n err=%s", server, err.Error())
 		return nil
+	}
+
+	// == //
+
+	apiEventFilter := apipb.APIEventFilter{}
+	lc.APIEventStream, err = lc.apiEventsClient.GetAPIEvents(context.Background(), &apiEventFilter)
+	if err != nil {
+		kg.Warnf("Failed to call GetAPIEvents (%s) err=%s (API events proxying will be unavailable)", server, err.Error())
+		// Don't return nil — logs/alerts/messages still work
+		lc.APIEventStream = nil
 	}
 
 	return lc
@@ -587,6 +676,74 @@ func (rs *RelayServer) AddLogFromBuffChan() {
 	}
 }
 
+// WatchAPIEvents Function
+func (lc *LogClient) WatchAPIEvents(wg *sync.WaitGroup, stop chan struct{}, _ chan error) {
+	defer wg.Done()
+
+	if lc.APIEventStream == nil {
+		return
+	}
+
+	var err error
+
+	for lc.Running {
+		var res *apipb.APIEvent
+
+		select {
+		case <-stop:
+			return
+		default:
+			if res, err = lc.APIEventStream.Recv(); err != nil {
+				// Stop only this watcher so logs, alerts, and messages continue
+				// working even if KubeArmor does not support API events or if the
+				// API event stream closes/fails independently.
+				if status.Code(err) == codes.Unimplemented {
+					kg.Warnf("API events are not supported by %s, API events proxying disabled for this node", lc.Server)
+					return
+				}
+				kg.Warnf("failed to receive an API event (%s) %s (logs/alerts/messages unaffected)", lc.Server, err.Error())
+				return
+			}
+
+			if res == nil {
+				continue
+			}
+
+			select {
+			case APIEventBufferChannel <- res:
+			case <-stop:
+				return
+			default:
+				// Not able to add it to APIEvent buffer
+			}
+		}
+	}
+
+	kg.Print("Stopped watching API events from " + lc.Server)
+}
+
+// AddAPIEventFromBuffChan Adds APIEvent from APIEventBufferChannel into APIEventStructs
+func (rs *RelayServer) AddAPIEventFromBuffChan() {
+
+	for Running {
+		select {
+		case apiEvent := <-APIEventBufferChannel:
+			APIEventLock.RLock()
+			for uid := range APIEventStructs {
+				select {
+				case APIEventStructs[uid].Broadcast <- apiEvent:
+				default:
+				}
+			}
+			APIEventLock.RUnlock()
+
+		default:
+			time.Sleep(time.Millisecond * 10)
+		}
+
+	}
+}
+
 // DestroyClient Function
 func (lc *LogClient) DestroyClient() error {
 	lc.Running = false
@@ -633,6 +790,9 @@ var MsgBufferChannel chan *pb.Message
 // AlertBufferChannel store incoming data from msg stream in buffer
 var AlertBufferChannel chan *pb.Alert
 
+// APIEventBufferChannel store incoming data from API event stream in buffer
+var APIEventBufferChannel chan *apipb.APIEvent
+
 // NewRelayServer Function
 func NewRelayServer(port, kubearmorGrpcPort string) *RelayServer {
 	rs := &RelayServer{}
@@ -643,6 +803,7 @@ func NewRelayServer(port, kubearmorGrpcPort string) *RelayServer {
 	LogBufferChannel = make(chan *pb.Log, 10000)
 	AlertBufferChannel = make(chan *pb.Alert, 1000)
 	MsgBufferChannel = make(chan *pb.Message, 100)
+	APIEventBufferChannel = make(chan *apipb.APIEvent, 10000)
 
 	// listen to gRPC port
 	listener, err := net.Listen("tcp", ":"+rs.Port)
@@ -677,6 +838,10 @@ func NewRelayServer(port, kubearmorGrpcPort string) *RelayServer {
 	logService := &LogService{}
 	pb.RegisterLogServiceServer(rs.LogServer, logService)
 
+	// register API observer service
+	apiObserverService := &APIObserverService{}
+	apipb.RegisterAPIObserverServiceServer(rs.LogServer, apiObserverService)
+
 	// initialize msg structs
 	MsgStructs = make(map[string]MsgStruct)
 	MsgLock = &sync.RWMutex{}
@@ -688,6 +853,10 @@ func NewRelayServer(port, kubearmorGrpcPort string) *RelayServer {
 	// initialize log structs
 	LogStructs = make(map[string]LogStruct)
 	LogLock = &sync.RWMutex{}
+
+	// initialize api event structs
+	APIEventStructs = make(map[string]APIEventStruct)
+	APIEventLock = &sync.RWMutex{}
 
 	// set wait group
 	rs.WgServer = sync.WaitGroup{}
@@ -781,7 +950,7 @@ func connectToKubeArmor(nodeID, port string) error {
 
 		var wg sync.WaitGroup
 		stop := make(chan struct{})
-		errCh := make(chan error, 1)
+		errCh := make(chan error, 4)
 
 		// Start watching messages
 		wg.Add(1)
@@ -797,6 +966,13 @@ func connectToKubeArmor(nodeID, port string) error {
 		wg.Add(1)
 		go client.WatchLogs(&wg, stop, errCh)
 		kg.Print("Started to watch logs from " + server)
+
+		// Start watching API events
+		if client.APIEventStream != nil {
+			wg.Add(1)
+			go client.WatchAPIEvents(&wg, stop, errCh)
+			kg.Print("Started to watch API events from " + server)
+		}
 
 		//start IP informers
 		kg.Print("Started to watch k8s IP's for resources")
@@ -835,6 +1011,7 @@ func (rs *RelayServer) GetFeedsFromNodes() {
 	go rs.AddMsgFromBuffChan()
 	go rs.AddAlertFromBuffChan()
 	go rs.AddLogFromBuffChan()
+	go rs.AddAPIEventFromBuffChan()
 
 	if K8s.InitK8sClient() {
 		kg.Print("Initialized the Kubernetes client")
