@@ -1,21 +1,18 @@
 #!/bin/bash
 
-BASE_DIR=`dirname $(realpath "$0")`/../..
-cd $BASE_DIR
-[[ "$REPO" == "" ]] && REPO="kubearmor/kubearmor-relay-server"
-[[ "$PLATFORMS" == "" ]] && PLATFORMS="linux/amd64,linux/arm64/v8"
+set -euo pipefail
 
-# check version
-VERSION=latest
-
-if [ ! -z $1 ]; then
-    VERSION=$1
-fi
+BASE_DIR=$(dirname "$(realpath "$0")")/../..
+cd "$BASE_DIR"
+REPO=${REPO:-kubearmor/kubearmor-relay-server}
+# Keep this list consistent with ci-latest-release.yml.
+PLATFORMS=${PLATFORMS:-linux/amd64,linux/arm64/v8}
+VERSION=${1:-latest}
 
 echo "[INFO] Pushing $REPO:$VERSION"
-docker buildx build --metadata-file kubearmor-relay-server.json --platform $PLATFORMS --build-arg VERSION=$VERSION --push -t $REPO:$VERSION -f $BASE_DIR/relay-server/Dockerfile .
-
-if [ $? != 0 ]; then
+if ! docker buildx build --metadata-file kubearmor-relay-server.json \
+    --platform "$PLATFORMS" --build-arg "VERSION=$VERSION" --push \
+    -t "$REPO:$VERSION" -f "$BASE_DIR/relay-server/Dockerfile" .; then
     echo "[FAILED] Failed to push $REPO:$VERSION"
     exit 1
 fi

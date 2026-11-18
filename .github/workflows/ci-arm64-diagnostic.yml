@@ -1,0 +1,51 @@
+name: Diagnose emulated arm64 image build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or ref to reproduce (defaults to the amd64 workaround)
+        default: 31bc6aabd2c7c4825ccb9b843d341050988a0409
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source to reproduce
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/arm64/v8
+          buildkitd-flags: --debug
+
+      - name: Reproduce arm64 build with full output
+        run: |
+          set -o pipefail
+          docker buildx build --no-cache --progress=plain \
+            --platform linux/arm64/v8 --output type=cacheonly \
+            --file relay-server/Dockerfile . \
+            2>&1 | tee "$RUNNER_TEMP/arm64-build.log"
+
+      - name: Retain diagnostic log even if the build fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulated-arm64-build-log
+          path: ${{ runner.temp }}/arm64-build.log
+          if-no-files-found: warn
+          retention-days: 30
