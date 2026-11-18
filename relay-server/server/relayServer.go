@@ -645,7 +645,7 @@ func NewRelayServer(port, kubearmorGrpcPort string) *RelayServer {
 	MsgBufferChannel = make(chan *pb.Message, 100)
 
 	// listen to gRPC port
-	listener, err := net.Listen("tcp", ":"+rs.Port)
+	listener, err := net.Listen("tcp", ":"+rs.Port) // #nosec G102 -- Listening on all interfaces is required for Kubernetes Service traffic.
 	if err != nil {
 		kg.Errf("Failed to listen a port (%s)\n", rs.Port)
 		return nil
