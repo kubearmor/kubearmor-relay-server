@@ -1,4 +1,4 @@
-name: Push KubeArmor Relay Image to Docker
+name: Build and publish KubeArmor Relay Image
 
 on:
   push:
@@ -8,65 +8,175 @@ on:
       - "relay-server/**"
       - "!STABLE-RELEASE"
       - ".github/workflows/ci-latest-release.yml"
-  
+      - ".dockerignore"
+
+  pull_request:
+    branches: [main]
+    paths:
+      - "relay-server/**"
+      - ".github/workflows/ci-latest-release.yml"
+      - ".dockerignore"
+
+  # Manual runs validate the multi-platform build without publishing.
+  workflow_dispatch:
+
   create:
-    branches:
-      - "v*"
-      
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relay-image-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  push-docker-img:
-    name: Create and push docker image
-    if: github.repository == 'kubearmor/kubearmor-relay-server'
-    runs-on: ubuntu-latest-16-cores
-    permissions:
-      id-token: write 
-    timeout-minutes: 20
+  build-native:
+    name: Build native ${{ matrix.arch }} image
+    # The create event has no branch filters; only version branches release images.
+    if: github.event_name != 'create' || (github.event.ref_type == 'branch' && startsWith(github.event.ref, 'v'))
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64/v8
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
         with:
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
+
+      - name: Build native image and export cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: relay-server/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: false
+          outputs: type=cacheonly
+          build-args: BUILDKIT_MULTI_PLATFORM=1
+          cache-from: type=gha,scope=relay-${{ matrix.arch }}
+          cache-to: type=gha,scope=relay-${{ matrix.arch }},mode=max
+
+  push-docker-img:
+    name: Assemble multi-platform image
+    needs: build-native
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    env:
+      PUBLISH: ${{ github.repository == 'kubearmor/kubearmor-relay-server' && (github.event_name == 'push' || github.event_name == 'create') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx with command execution disabled
+        uses: docker/setup-buildx-action@v3
+        with:
+          # Keep this list consistent with relay-server/build/push_img.sh.
+          platforms: linux/amd64,linux/arm64/v8
+          # Cache imports still work, but any uncached RUN fails through /bin/false.
+          # Disabling QEMU alone is insufficient: BuildKit includes emulators.
+          buildkitd-flags: >-
+            --oci-worker=true
+            --oci-worker-binary=/bin/false
+            --containerd-worker=false
+            --oci-worker-platform=linux/amd64
+            --oci-worker-platform=linux/arm64/v8
+
+      - name: Verify that an uncached RUN is rejected
+        run: |
+          context=$(mktemp -d)
+          trap 'rm -rf "$context"' EXIT
+          cat > "$context/Dockerfile" <<'EOF'
+          FROM redhat/ubi10-minimal
+          RUN true
+          EOF
+          if docker buildx build --no-cache --progress=plain --platform linux/amd64 "$context"; then
+            echo "::error::Cache-only builder executed an uncached RUN"
+            exit 1
+          fi
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_AUTHTOK }}
-      
-      - name: Push images to Docker
+
+      - name: Get image tag
+        id: tag
         run: |
-          if [ ${{ github.ref }} == "refs/heads/main" ]; then
+          if [ "$GITHUB_REF" == "refs/heads/main" ]; then
             TAG=latest
           else
             TAG=${GITHUB_REF#refs/*/}
           fi
-          ./relay-server/build/push_img.sh $TAG
+          # Pull request refs contain slashes and cannot be Docker tags.
+          if [ "$GITHUB_EVENT_NAME" == "pull_request" ] || [ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]; then
+            TAG=ci
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Install Cosign 
+      - name: Assemble image from native caches
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: relay-server/Dockerfile
+          platforms: linux/amd64,linux/arm64/v8
+          push: ${{ env.PUBLISH == 'true' }}
+          outputs: ${{ env.PUBLISH != 'true' && format('type=oci,dest={0}/relay-image.tar', runner.temp) || '' }}
+          tags: kubearmor/kubearmor-relay-server:${{ steps.tag.outputs.tag }}
+          build-args: |
+            BUILDKIT_MULTI_PLATFORM=1
+            VERSION=${{ steps.tag.outputs.tag }}
+          cache-from: |
+            type=gha,scope=relay-amd64
+            type=gha,scope=relay-arm64
+
+  sign-image:
+    name: Sign published image
+    needs: push-docker-img
+    if: github.repository == 'kubearmor/kubearmor-relay-server' && (github.event_name == 'push' || github.event_name == 'create')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 10
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_AUTHTOK }}
+
+      - name: Install Cosign
         uses: sigstore/cosign-installer@main
-  
-      - name: Get Image Digest
-        id: digest
-        run: | 
-          echo "imagedigest=$(jq -r '.["containerimage.digest"]' kubearmor-relay-server.json)" >> $GITHUB_OUTPUT
 
       - name: Sign the Container Images
+        env:
+          IMAGE_DIGEST: ${{ needs.push-docker-img.outputs.digest }}
         run: |
-          cosign sign -r kubearmor/kubearmor-relay-server@${{ steps.digest.outputs.imagedigest }} --yes    
-    
+          cosign sign -r "kubearmor/kubearmor-relay-server@$IMAGE_DIGEST" --yes
+
   push-stable-version:
     name: Create kubearmor-relay stable release
-    needs: push-docker-img
+    needs: sign-image
     if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
+      contents: read
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v3
